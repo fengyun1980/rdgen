@@ -613,12 +613,59 @@ jobs:
         run: |
           mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}.msi" || echo "rustdesk"
 
-      - name: send file to rdgen server
+     # - name: send file to rdgen server
+     #   if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
+     #   shell: bash
+     #   run: |
+     #     curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+     #     curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+
+      - name: Send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+        # 定义最大重试次数
+          MAX_RETRIES=3
+          RETRY_COUNT=0
+          UPLOAD_SUCCESS=false
+
+        # 定义上传文件的函数
+        upload_file() {
+          local file_path="$1"
+          local file_name="$2"
+          local url="${{ secrets.GENURL }}/save_custom_client"
+          local token="${{ fromJson(inputs.extras).token }}"
+          local uuid="${{ inputs.uuid }}"
+
+        curl -i -X POST -H "Content-Type: multipart/form-data" \
+             -H "Authorization: Bearer $token" \
+             -F "file=@$file_path" \
+             -F "uuid=$uuid" \
+             "$url" > /dev/null 2>&1
+
+        if [ $? -eq 0 ]; then
+          echo "Successfully uploaded $file_name"
+          UPLOAD_SUCCESS=true
+        else
+          echo "Failed to upload $file_name, retrying..."
+        fi
+      }
+
+      # 尝试上传 .exe 文件
+      while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$UPLOAD_SUCCESS" = "false" ]; do
+        upload_file "./SignOutput/${{ inputs.filename }}.exe" ".exe"
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+      done
+
+      # 重置上传状态
+      UPLOAD_SUCCESS=false
+      RETRY_COUNT=0
+
+      # 尝试上传 .msi 文件
+      while [ $RETRY_COUNT -lt $MAX_RETRIES ] && [ "$UPLOAD_SUCCESS" = "false" ]; do
+        upload_file "./SignOutput/${{ inputs.filename }}.msi" ".msi"
+        RETRY_COUNT=$((RETRY_COUNT + 1))
+      done
 
       - name: send file to api server
         if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
