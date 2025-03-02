@@ -743,7 +743,7 @@ jobs:
             -H "Content-Type: multipart/form-data" \
             -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
             -F "file=@$GITHUB_WORKSPACE/${{ inputs.filename }}.dmg" \
-            -F "uuid=${{ inputs.uuid }}" \
+            -F "uuid=${{ inputs.uuid }}" --max-time 600 --retry 10 \
             "${{ secrets.GENURL }}/save_custom_client"
         
 
