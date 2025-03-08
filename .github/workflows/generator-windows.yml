@@ -617,16 +617,25 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --max-time 600 --retry 10 ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --max-time 600 --retry 10 ${{ secrets.GENURL }}/save_custom_client || true
+          upload_file() {
+            local filepath="$1"
+            local extension="${filepath##*.}"  # 提取文件扩展名
+            curl -i -v -X POST \
+              -H "Content-Type: multipart/form-data" \
+              -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
+              -F "file=@$filepath" \
+              -F "uuid=${{ inputs.uuid }}" \
+              --max-time 300 \
+              --retry 5 \
+              --proxy "https://gh-proxy.com" \  # 添加代理服务器地址
+              ${{ secrets.GENURL }}/save_custom_client || {
+              echo "Upload failed for file: $filepath"
+              exit 1
+            }
+          }
 
-      - name: send file to api server
-        if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
-        shell: bash
-        run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --max-time 300 --retry 3 ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --max-time 300 --retry 3 ${{ secrets.GENURL }}/save_custom_client || true
-
+       #   curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --max-time 600 --retry 10 ${{ secrets.GENURL }}/save_custom_client
+       #   curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --max-time 600 --retry 10 ${{ secrets.GENURL }}/save_custom_client || true
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
         with:
