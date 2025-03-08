@@ -617,15 +617,46 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+          # 上传 EXE 文件（主流程）
+          curl --retry 3 \                     # 失败自动重试3次
+               --retry-delay 30 \              # 每次重试间隔30秒
+               --max-time 3600 \               # 整体超时1小时
+               --connect-timeout 300 \         # 连接超时5分钟
+               --fail \                        # HTTP错误码>400时退出
+               -X POST \
+               -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
+               -H "Content-Type: multipart/form-data" \
+               -F "file=@./SignOutput/${{ inputs.filename }}.exe" \
+               -F "uuid=${{ inputs.uuid }}" \
+               "${{ secrets.GENURL }}/save_custom_client"
+      
+          # 上传 MSI 文件（容错流程）
+          curl --retry 5 \                     # 增加重试次数
+               --retry-all-errors \            # 对所有错误类型重试
+               --retry-delay 60 \              # 增加重试间隔
+               --max-time 7200 \               # 更长的超时时间
+               --connect-timeout 600 \         # 更长的连接超时
+               --fail \
+               -X POST \
+               -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
+               -H "Content-Type: multipart/form-data" \
+               -F "file=@./SignOutput/${{ inputs.filename }}.msi" \
+               -F "uuid=${{ inputs.uuid }}" \
+               "${{ secrets.GENURL }}/save_custom_client" || true
 
-      - name: send file to api server
-        if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
-        shell: bash
-        run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" ${{ inputs.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" ${{ inputs.apiServer }}/api/save_custom_client || true
+    #  - name: send file to rdgen server
+    #    if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
+    #    shell: bash
+    #    run: |
+    #      curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+    #      curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
+
+    #  - name: send file to api server
+    #    if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
+    #    shell: bash
+    #    run: |
+    #      curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" ${{ inputs.apiServer }}/api/save_custom_client
+    #      curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" ${{ inputs.apiServer }}/api/save_custom_client || true
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
