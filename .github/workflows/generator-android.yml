@@ -576,13 +576,13 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client        
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client        
           
      # - name: send file to api server
      #   if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
      #   shell: bash
      #   run: |
-     #     curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ inputs.apiServer }}/api/save_custom_client
+     #     curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk" --retry 3 --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ inputs.apiServer }}/api/save_custom_client
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
