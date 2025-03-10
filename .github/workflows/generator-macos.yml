@@ -743,19 +743,19 @@ jobs:
             -H "Content-Type: multipart/form-data" \
             -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
             -F "file=@$GITHUB_WORKSPACE/${{ inputs.filename }}.dmg" \
-            -F "uuid=${{ inputs.uuid }}" --max-time 600 --retry 10 \
+            -F "uuid=${{ inputs.uuid }}" --retry 10 --retry-delay 60 --max-time 7200 --connect-timeout 600 \
             "${{ secrets.GENURL }}/save_custom_client"
         
 
-      - name: send file to api server
-        if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
-        shell: bash
-        run: |
-          curl -i -X POST \
-            -H "Content-Type: multipart/form-data" \
-            -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
-            -F "file=@$GITHUB_WORKSPACE/${{ inputs.filename }}.dmg" \
-            "${{ inputs.apiServer }}/api/save_custom_client"
+     # - name: send file to api server
+     #   if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
+     #   shell: bash
+     #   run: |
+     #     curl -i -X POST \
+     #       -H "Content-Type: multipart/form-data" \
+     #       -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
+     #       -F "file=@$GITHUB_WORKSPACE/${{ inputs.filename }}.dmg" \
+     #       "${{ inputs.apiServer }}/api/save_custom_client"
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
