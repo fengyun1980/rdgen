@@ -105,8 +105,12 @@ jobs:
       fail-fast: false
       matrix:
         job:
-          # - { target: i686-pc-windows-msvc        , os: windows-2022                  }
-          # - { target: x86_64-pc-windows-gnu       , os: windows-2022                  }
+          - { 
+              target: i686-pc-windows-msvc,
+              os: windows-2022,
+              arch: x86,
+              vcpkg-triplet: x86-windows-static,
+            }
           - {
               target: x86_64-pc-windows-msvc,
               os: windows-2022,
@@ -279,9 +283,15 @@ jobs:
         run: |
           flutter doctor -v
           flutter precache --windows
-          Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
-          Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
-          mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+          if [ "${{ matrix.job.arch }}" == "x86" ]; then
+            Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x86-release.zip -OutFile windows-x86-release.zip
+            Expand-Archive -Path windows-x86-release.zip -DestinationPath windows-x86-release
+            mv -Force windows-x86-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x86-release/
+          else
+            Invoke-WebRequest -Uri https://github.com/rustdesk/engine/releases/download/main/windows-x64-release.zip -OutFile windows-x64-release.zip
+            Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
+            mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
+          fi
 
       - name: Patch flutter
         continue-on-error: true
@@ -297,6 +307,7 @@ jobs:
           toolchain: ${{ env.SCITER_RUST_VERSION }}
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
+          override: true
 
       - name: Report Build Progress
         uses: fjogeleit/http-request-action@v1
@@ -331,6 +342,14 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
+          # Install x86 dependencies first
+          if [ "${{ matrix.job.arch }}" == "x86" ]; then
+            $VCPKG_ROOT/vcpkg install \
+              --triplet x86-windows-static \
+              --x-install-root="$VCPKG_ROOT/installed"
+          fi
+          
+          # Install main dependencies
           if ! $VCPKG_ROOT/vcpkg \
             install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
@@ -622,15 +641,8 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client || true
-
-    #  - name: send file to api server
-    #    if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
-    #    shell: bash
-    #    run: |
-    #      curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" ${{ inputs.apiServer }}/api/save_custom_client
-    #      curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" ${{ inputs.apiServer }}/api/save_custom_client || true
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 60 --max-time 14400 --connect-timeout 1200 --progress-bar --limit-rate 1M ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 60 --max-time 14400 --connect-timeout 1200 --progress-bar --limit-rate 1M ${{ secrets.GENURL }}/save_custom_client || true
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
