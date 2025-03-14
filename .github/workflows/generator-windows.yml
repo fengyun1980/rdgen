@@ -142,7 +142,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Build started"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "Build started", "timestamp": "${{ github.run_id }}"}'
 
       - name: Checkout source code
         if: ${{ env.VERSION != 'master' }}
@@ -338,32 +338,80 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
+      - name: Clean vcpkg cache
+        run: |
+          echo "Cleaning vcpkg cache..."
+          $VCPKG_ROOT/vcpkg remove --outdated --recurse
+          echo "Removed outdated packages"
+          rm -rf "${VCPKG_ROOT}/buildtrees/*"
+          echo "Cleared buildtrees directory"
+          rm -rf "${VCPKG_ROOT}/packages/*" 
+          echo "Cleared packages directory"
+          rm -rf "${VCPKG_ROOT}/downloads/*"
+          echo "Cleared downloads directory"
+          echo "Vcpkg cache cleanup complete"
+
       - name: Install vcpkg dependencies
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
+          VCPKG_DOWNLOADS: "${VCPKG_ROOT}/downloads"
+        timeout-minutes: 30
         run: |
-          # Install x86 dependencies first
+          set -e
+          echo "Starting vcpkg dependency installation..."
+          echo "Architecture: ${{ matrix.job.arch }}"
+          echo "Vcpkg triplet: ${{ matrix.job.vcpkg-triplet }}"
+          echo "Vcpkg root: ${VCPKG_ROOT}"
+          echo "Vcpkg downloads: ${VCPKG_DOWNLOADS}"
+          
+          # Install x86 dependencies
           if [ "${{ matrix.job.arch }}" == "x86" ]; then
+            echo "Starting x86 dependency installation..."
+            echo "Installing libvpx for x86..."
             $VCPKG_ROOT/vcpkg install \
               --triplet x86-windows-static \
-              --x-install-root="$VCPKG_ROOT/installed"
+              libvpx \
+              --x-install-root="$VCPKG_ROOT/installed" || {
+                echo "::error::Failed to install x86 dependencies"
+                echo "Dumping build logs:"
+                find "${VCPKG_ROOT}/" -name "*.log" | while read -r log; do
+                  echo "=== $log ==="
+                  cat "$log"
+                  echo ""
+                done
+                echo "::endgroup::"
+                exit 1
+              }
+            echo "Successfully installed x86 dependencies"
           fi
           
           # Install main dependencies
-          if ! $VCPKG_ROOT/vcpkg \
-            install \
+          echo "Starting main dependency installation..."
+          echo "Installing libvpx for ${{ matrix.job.arch }}..."
+          if ! $VCPKG_ROOT/vcpkg install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
+            libvpx \
             --x-install-root="$VCPKG_ROOT/installed"; then
-            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-              echo "$_1:"
-              echo "======"
-              cat "$_1"
-              echo "======"
+            echo "::error::Failed to install main dependencies"
+            echo "Dumping build logs:"
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r log; do
+              echo "=== $log ==="
+              cat "$log"
               echo ""
             done
+            echo "::endgroup::"
             exit 1
           fi
-          head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
+          echo "Successfully installed main dependencies"
+          
+          echo "Build summary:"
+          echo "=== libvpx build log ==="
+          tail -n 50 "${VCPKG_ROOT}/buildtrees/libvpx/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
+          echo ""
+          echo "=== ffmpeg build log ==="
+          tail -n 50 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
+          echo ""
+          echo "Vcpkg dependency installation completed successfully"
         shell: bash
 
       - name: icon stuff
@@ -452,7 +500,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "25% complete"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "25% complete", "timestamp": "${{ github.run_id }}", "step": "dependency_installation"}'
 
       - name: replace flutter icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -470,7 +518,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient.", "timestamp": "${{ github.run_id }}", "step": "build_start"}'
 
       - name: Build rustdesk
         run: |
@@ -525,7 +573,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient.", "timestamp": "${{ github.run_id }}", "step": "build_complete"}'
       
       - name: zip dlls
         continue-on-error: true
@@ -584,15 +632,15 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "85% complete"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "85% complete", "timestamp": "${{ github.run_id }}", "step": "packaging"}'
 
-      - name: zip exe and msi
+      - name: zip exe
         continue-on-error: true
         shell: pwsh
         run: |
           Compress-Archive -Path ./SignOutput/*.exe, ./SignOutput/*.msi -DestinationPath ./SignOutput/unsigned_files.zip -CompressionLevel Fastest
 
-      - name: sign exe and msi
+      - name: sign exe
         continue-on-error: true
         shell: bash
         run: |
@@ -606,7 +654,7 @@ jobs:
             cp ./SignOutput/unsigned_files.zip ./SignOutput/signed_files.zip
           fi
 
-      - name: unzip exe and msi
+      - name: unzip exe
         continue-on-error: true
         shell: pwsh
         run: |
@@ -615,12 +663,13 @@ jobs:
           Remove-Item ./SignOutput/signed_files.zip
 
       - name: rename rustdesk.exe to filename.exe
+        shell: pwsh
         run: |
-          if [ "${{ matrix.job.arch }}" == "x86" ]; then
-            mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x86.exe" || echo "rustdesk"
-          else
-            mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x64.exe" || echo "rustdesk"
-          fi
+          if ($env:matrix_job_arch -eq "x86") {
+            Move-Item ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x86.exe"
+          } else {
+            Move-Item ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x64.exe"
+          }
 
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
@@ -634,7 +683,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Success"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "Success", "timestamp": "${{ github.run_id }}", "step": "complete", "build_id": "${{ github.run_id }}"}'
 
       - name: failed
         if: failure()
