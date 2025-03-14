@@ -341,14 +341,27 @@ jobs:
       - name: Clean vcpkg cache
         run: |
           echo "Cleaning vcpkg cache..."
-          C:\vcpkg\vcpkg.exe remove --outdated --recurse
-          echo "Removed outdated packages"
-          Remove-Item -Recurse -Force "C:\vcpkg\buildtrees\*"
-          echo "Cleared buildtrees directory"
-          Remove-Item -Recurse -Force "C:\vcpkg\packages\*"
-          echo "Cleared packages directory"
-          Remove-Item -Recurse -Force "C:\vcpkg\downloads\*"
-          echo "Cleared downloads directory"
+          if (Test-Path "C:\vcpkg\vcpkg.exe") {
+            C:\vcpkg\vcpkg.exe remove --outdated --recurse
+            echo "Removed outdated packages"
+            
+            if (Test-Path "C:\vcpkg\buildtrees") {
+              Remove-Item -Recurse -Force "C:\vcpkg\buildtrees\*"
+              echo "Cleared buildtrees directory"
+            }
+            
+            if (Test-Path "C:\vcpkg\packages") {
+              Remove-Item -Recurse -Force "C:\vcpkg\packages\*"
+              echo "Cleared packages directory"
+            }
+            
+            if (Test-Path "C:\vcpkg\downloads") {
+              Remove-Item -Recurse -Force "C:\vcpkg\downloads\*"
+              echo "Cleared downloads directory"
+            }
+          } else {
+            echo "vcpkg not found at C:\vcpkg, skipping cache cleanup"
+          }
           echo "Vcpkg cache cleanup complete"
 
       - name: Install vcpkg dependencies
