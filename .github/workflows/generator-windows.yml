@@ -341,13 +341,13 @@ jobs:
       - name: Clean vcpkg cache
         run: |
           echo "Cleaning vcpkg cache..."
-          $VCPKG_ROOT/vcpkg remove --outdated --recurse
+          C:\vcpkg\vcpkg.exe remove --outdated --recurse
           echo "Removed outdated packages"
-          rm -rf "${VCPKG_ROOT}/buildtrees/*"
+          Remove-Item -Recurse -Force "C:\vcpkg\buildtrees\*"
           echo "Cleared buildtrees directory"
-          rm -rf "${VCPKG_ROOT}/packages/*" 
+          Remove-Item -Recurse -Force "C:\vcpkg\packages\*"
           echo "Cleared packages directory"
-          rm -rf "${VCPKG_ROOT}/downloads/*"
+          Remove-Item -Recurse -Force "C:\vcpkg\downloads\*"
           echo "Cleared downloads directory"
           echo "Vcpkg cache cleanup complete"
 
