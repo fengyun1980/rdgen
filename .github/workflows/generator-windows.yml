@@ -132,13 +132,13 @@ jobs:
         run: |
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $env:GITHUB_ENV
 
-      - name: Report Status
+      - name: Report Initial Status
         uses: fjogeleit/http-request-action@v1
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "5% complete"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "Build started"}'
 
       - name: Checkout source code
         if: ${{ env.VERSION != 'master' }}
@@ -257,13 +257,16 @@ jobs:
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Cache Rust dependencies
+        uses: actions/cache@v3
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "10% complete"}'
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-
 
       - name: Install flutter
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
@@ -295,25 +298,27 @@ jobs:
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
-      - name: Report Status
+      - name: Report Build Progress
         uses: fjogeleit/http-request-action@v1
         with:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "Dependencies installed, starting build"}'
 
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
         
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Enable Build Artifact Caching
+        uses: actions/cache@v3
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
+          path: |
+            flutter/build
+            target
+          key: ${{ runner.os }}-build-${{ hashFiles('**/Cargo.toml', '**/pubspec.yaml') }}
+          restore-keys: |
+            ${{ runner.os }}-build-
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
