@@ -737,6 +737,17 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
 
+      - name: Install FFmpeg dependencies
+        run: |
+          C:\vcpkg\vcpkg install ffmpeg[core,avcodec,avutil,avformat]:x86-windows-static --recurse
+
+      - name: Set vcpkg environment variables
+        run: |
+          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
+          echo "VCPKG_DEFAULT_TRIPLET=x86-windows-static" >> $env:GITHUB_ENV
+          echo "VCPKG_DEFAULT_HOST_TRIPLET=x86-windows-static" >> $env:GITHUB_ENV
+          echo "CMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
+
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
         with:
@@ -829,5 +840,3 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation cancelled, try again"}'
-
-  
