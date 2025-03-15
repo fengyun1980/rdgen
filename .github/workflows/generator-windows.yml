@@ -739,7 +739,7 @@ jobs:
 
       - name: Install FFmpeg dependencies
         run: |
-          C:\vcpkg\vcpkg install ffmpeg[core,avcodec,avutil,avformat]:x86-windows-static --recurse --classic
+          C:\vcpkg\vcpkg install ffmpeg[core,avcodec,avformat]:x86-windows-static --recurse --classic
 
       - name: Set vcpkg environment variables
         run: |
