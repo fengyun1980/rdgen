@@ -711,9 +711,23 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Set up Rust cache environment
+        run: |
+          echo "CARGO_HOME=${{ github.workspace }}/.cargo" >> $env:GITHUB_ENV
+          echo "CARGO_TARGET_DIR=${{ github.workspace }}/target" >> $env:GITHUB_ENV
+
+      - name: Configure Rust cache
+        uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: ${{ matrix.job.os }}
+          prefix-key: ${{ matrix.job.os }}-${{ matrix.job.arch }}-${{ env.RUST_VERSION }}
+          cache-directories: |
+            ${{ github.workspace }}/.cargo
+            ${{ github.workspace }}/target
+          cache-targets: ${{ matrix.job.target }}
+          cache-all-targets: true
+          cache-all-features: true
+          cache-all-profiles: true
+          cache-key: ${{ github.run_id }}-${{ github.run_attempt }}
         
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
@@ -752,7 +766,7 @@ jobs:
 
       - name: Build rustdesk
         run: |
-          python3 .\build.py --portable --hwcodec --sciter --vram --skip-portable-pack --target ${{ matrix.job.target }}
+          python3 .\build.py --portable --hwcodec --vram --skip-portable-pack
 
       - name: Create custom.txt file
         shell: bash
@@ -815,4 +829,5 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation cancelled, try again"}'
+
   
