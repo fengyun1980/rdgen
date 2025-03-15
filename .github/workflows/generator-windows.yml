@@ -683,10 +683,83 @@ jobs:
           choco install -y imagemagick.app --no-progress
           Get-ChildItem -Path "${env:ProgramFiles}" | % { $_.FullName } | Select-String -Pattern "[\/\\]ImageMagick[^\/\\]*$" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
 
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
-        with:
-          version: ${{ env.LLVM_VERSION }}
+      - name: change appname to custom
+        if: inputs.appname != 'rustdesk'
+        continue-on-error: true
+        shell: bash
+        run: |
+          # ./Cargo.toml
+          sed -i -e 's|description = "RustDesk Remote Desktop"|description = "${{ inputs.appname }}"|' ./Cargo.toml
+          sed -i -e 's|ProductName = "RustDesk"|ProductName = "${{ inputs.appname }}"|' ./Cargo.toml
+          sed -i -e 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "${{ inputs.appname }}"|' ./Cargo.toml
+          sed -i -e 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "${{ inputs.appname }}.exe"|' ./Cargo.toml
+          # ./libs/portable/Cargo.toml
+          sed -i -e 's|description = "RustDesk Remote Desktop"|description = "${{ inputs.appname }}"|' ./libs/portable/Cargo.toml
+          sed -i -e 's|ProductName = "RustDesk"|ProductName = "${{ inputs.appname }}"|' ./libs/portable/Cargo.toml
+          sed -i -e 's|FileDescription = "RustDesk Remote Desktop"|FileDescription = "${{ inputs.appname }}"|' ./libs/portable/Cargo.toml
+          sed -i -e 's|OriginalFilename = "rustdesk.exe"|OriginalFilename = "${{ inputs.appname }}.exe"|' ./libs/portable/Cargo.toml
+          # ./flutter/windows/runner/Runner.rc
+          sed -i -e 's|"RustDesk Remote Desktop"|"${{ inputs.appname }}"|' ./flutter/windows/runner/Runner.rc
+          sed -i -e 's|VALUE "InternalName", "rustdesk" "\0"|VALUE "InternalName", "${{ inputs.appname }}" "\0"|' ./flutter/windows/runner/Runner.rc
+          sed -i -e 's|"rustdesk.exe"|"${{ inputs.filename }}"|' ./flutter/windows/runner/Runner.rc
+          sed -i -e 's|"RustDesk"|"${{ inputs.appname }}"|' ./flutter/windows/runner/Runner.rc
+          # ./src/lang/en.rs
+          find ./src/lang -name "*.rs" -exec sed -i -e 's|RustDesk|${{ inputs.appname }}|' {} \;
+          
+      - name: change company name
+        if: fromJson(inputs.extras).compname != 'Purslane Ltd'
+        continue-on-error: true
+        shell: bash
+        run: |
+          sed -i -e 's|Purslane Ltd|${{ fromJson(inputs.extras).compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i -e 's|Purslane Ltd.|${{ fromJson(inputs.extras).compname }}|' ./res/setup.nsi
+          sed -i -e 's|PURSLANE|${{ fromJson(inputs.extras).compname }}|' ./res/msi/preprocess.py
+          sed -i -e 's|Purslane Ltd|${{ fromJson(inputs.extras).compname }}|' ./res/msi/preprocess.py
+          sed -i -e 's|"Copyright © 2025 Purslane Ltd. All rights reserved."|"Copyright © 2025 ${{ fromJson(inputs.extras).compname }}. All rights reserved."|' ./flutter/windows/runner/Runner.rc
+          sed -i -e 's|Purslane Ltd|${{ fromJson(inputs.extras).compname }}|' ./flutter/windows/runner/Runner.rc
+          sed -i -e 's|Purslane Ltd|${{ fromJson(inputs.extras).compname }}|' ./Cargo.toml
+          sed -i -e 's|Purslane Ltd|${{ fromJson(inputs.extras).compname }}|' ./libs/portable/Cargo.toml
+             
+      - name: change url to custom
+        if: fromJson(inputs.extras).urlLink != 'https://rustdesk.com'
+        continue-on-error: true
+        shell: bash
+        run: |
+          sed -i -e 's|Homepage: https://rustdesk.com|Homepage: ${{ fromJson(inputs.extras).urlLink }}|' ./build.py
+          sed -i -e "s|launchUrl(Uri.parse('https://rustdesk.com'));|launchUrl(Uri.parse('${{ fromJson(inputs.extras).urlLink }}'));|" ./flutter/lib/common.dart
+          sed -i -e "s|launchUrlString('https://rustdesk.com');|launchUrlString('${{ fromJson(inputs.extras).urlLink }}');|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ fromJson(inputs.extras).urlLink }}/privacy.html')|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i -e "s|const url = 'https://rustdesk.com/';|const url = '${{ fromJson(inputs.extras).urlLink }}';|" ./flutter/lib/mobile/pages/settings_page.dart
+          sed -i -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ fromJson(inputs.extras).urlLink }}/privacy.html')|" ./flutter/lib/mobile/pages/settings_page.dart
+          sed -i -e "s|https://rustdesk.com/privacy.html|${{ fromJson(inputs.extras).urlLink }}/privacy.html|" ./flutter/lib/desktop/pages/install_page.dart
+          sed -i -e "s|https://rustdesk.com/|${{fromJson(inputs.extras).urlLink }}|" ./res/setup.nsi
+
+      - name: change download link to custom
+        if: fromJson(inputs.extras).downloadLink != 'https://rustdesk.com/download'
+        continue-on-error: true
+        shell: bash
+        run: |
+          sed -i -e 's|https://rustdesk.com/download|${{ fromJson(inputs.extras).downloadLink }}|' ./flutter/lib/desktop/pages/desktop_home_page.dart
+          sed -i -e 's|https://rustdesk.com/download|${{ fromJson(inputs.extras).downloadLink }}|' ./flutter/lib/mobile/pages/connection_page.dart
+          sed -i -e 's|https://rustdesk.com/download|${{ fromJson(inputs.extras).downloadLink }}|' ./src/ui/index.tis
+
+      - name: set server, key, and apiserver
+        continue-on-error: true
+        shell: bash
+        run: |
+          sed -i -e 's|rs-ny.rustdesk.com|${{ inputs.server }}|' ./libs/hbb_common/src/config.rs
+          sed -i -e 's|OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=|${{ inputs.key }}|' ./libs/hbb_common/src/config.rs
+          sed -i -e 's|https://admin.rustdesk.com|${{ inputs.apiServer }}|' ./src/common.rs
+          # ./flutter/pubspec.yaml
+          #sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
+          
+      - name: allow custom.txt
+        continue-on-error: true
+        run: |
+          Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/allowCustom.diff -OutFile allowCustom.diff
+          git apply allowCustom.diff
+          Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
+          git apply removeSetupServerTip.diff
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
@@ -696,57 +769,21 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ inputs.uuid }}", "status": "10% complete"}'
 
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: ${{ env.LLVM_VERSION }}
+
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@v1
         with:
-          toolchain: ${{ env.SCITER_RUST_VERSION }}
+          toolchain: nightly-2023-10-13-${{ matrix.job.target }} # must use nightly here, because of abi_thiscall feature required
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - uses: Swatinem/rust-cache@v2
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
-
-      - name: Set up Rust cache environment
-        run: |
-          echo "CARGO_HOME=${{ github.workspace }}/.cargo" >> $env:GITHUB_ENV
-          echo "CARGO_TARGET_DIR=${{ github.workspace }}/target" >> $env:GITHUB_ENV
-
-      - name: Configure Rust cache
-        uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ${{ matrix.job.os }}-${{ matrix.job.arch }}-${{ env.RUST_VERSION }}
-          cache-directories: |
-            ${{ github.workspace }}/.cargo
-            ${{ github.workspace }}/target
-          cache-targets: ${{ matrix.job.target }}
-          cache-all-targets: true
-          cache-all-features: true
-          cache-all-profiles: true
-          cache-key: ${{ github.run_id }}-${{ github.run_attempt }}
-        
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
-        with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
-
-      - name: Install FFmpeg dependencies
-        run: |
-          C:\vcpkg\vcpkg install ffmpeg[core,avcodec,avformat]:x86-windows-static --recurse --classic
-
-      - name: Set vcpkg environment variables
-        run: |
-          echo "VCPKG_ROOT=C:\vcpkg" >> $env:GITHUB_ENV
-          echo "VCPKG_DEFAULT_TRIPLET=x86-windows-static" >> $env:GITHUB_ENV
-          echo "VCPKG_DEFAULT_HOST_TRIPLET=x86-windows-static" >> $env:GITHUB_ENV
-          echo "CMAKE_TOOLCHAIN_FILE=C:\vcpkg\scripts\buildsystems\vcpkg.cmake" >> $env:GITHUB_ENV
+          prefix-key: ${{ matrix.job.os }}-sciter
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
@@ -775,14 +812,54 @@ jobs:
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
         shell: bash
 
+      - name: Report Status
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: ${{ env.STATUS_URL }}
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
+
       - name: Build rustdesk
+        id: build
+        shell: bash
         run: |
-          python3 .\build.py --portable --hwcodec --vram --skip-portable-pack
+          python3 res/inline-sciter.py
+          # Patch sciter x86
+          sed -i 's/branch = "dyn"/branch = "dyn_x86"/g' ./Cargo.toml
+          cargo build --features inline,vram,hwcodec --release --bins
+          mkdir -p ./Release
+          mv ./target/release/rustdesk.exe ./Release/rustdesk.exe
+          curl -LJ -o ./Release/sciter.dll https://github.com/c-smile/sciter-sdk/raw/master/bin.win/x32/sciter.dll
+          echo "output_folder=./Release" >> $GITHUB_OUTPUT
+          curl -LJ -o ./usbmmidd_v2.zip https://github.com/rustdesk-org/rdev/releases/download/usbmmidd_v2/usbmmidd_v2.zip
+          unzip usbmmidd_v2.zip
+          # Do not remove x64 files, because the user may run the 32bit version on a 64bit system.
+          # Do not remove ./usbmmidd_v2/deviceinstaller64.exe, as x86 exe cannot install and uninstall drivers when running on x64,
+          # we need the x64 exe to install and uninstall the driver.
+          rm -rf ./usbmmidd_v2/deviceinstaller.exe ./usbmmidd_v2/usbmmidd.bat
+          mv ./usbmmidd_v2 ./Release || true
+
+      - name: find Runner.res
+        # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
+        # Runner.rc does not contain actual version, but Runner.res does
+        continue-on-error: true
+        shell: bash
+        run: |
+          runner_res=$(find . -name "Runner.res");
+          if [ "$runner_res" == "" ]; then
+            echo "Runner.res: not found";
+          else
+            echo "Runner.res: $runner_res";
+            cp $runner_res ./libs/portable/Runner.res;
+            echo "list ./libs/portable/Runner.res";
+            ls -l ./libs/portable/Runner.res;
+          fi
 
       - name: Create custom.txt file
         shell: bash
         run: |
-          echo -n "${{ inputs.custom }}" | cat > ./rustdesk/custom.txt
+          echo -n "${{ inputs.custom }}" | cat > ./rustdesk/custom.txt          
 
       - name: Build self-extracted executable
         shell: bash
