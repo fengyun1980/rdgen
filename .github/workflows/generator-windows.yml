@@ -609,6 +609,7 @@ jobs:
 
   build-for-windows-sciter:
     name: Build Windows 32-bit
+    needs: [build-RustDeskTempTopMostWindow, generate-bridge]
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
