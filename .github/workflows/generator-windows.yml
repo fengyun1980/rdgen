@@ -598,19 +598,19 @@ jobs:
           
       - name: rename rustdesk.exe to filename.exe
         run: |
-          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}-${{ matrix.job.arch }}.exe" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}.exe" || echo "rustdesk"
           
       - name: rename rustdesk.msi to filename.msi
         continue-on-error: true
         run: |
-          mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}.msi" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}.msi" || echo "rustdesk"
           
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}-${{ matrix.job.arch }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client || true
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client || true
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
         with:
