@@ -518,7 +518,7 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${{ inputs.appname }}.exe"
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
+          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe"
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
@@ -570,7 +570,7 @@ jobs:
           Remove-Item ./SignOutput/signed_files.zip
       - name: rename rustdesk.exe to filename.exe
         run: |
-          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}.exe" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x86-64.exe" || echo "rustdesk"
       - name: rename rustdesk.msi to filename.msi
         continue-on-error: true
         run: |
@@ -964,14 +964,14 @@ jobs:
         shell: bash
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
-          mv "./rustdesk/rustdesk.exe" "./rustdesk/${{ inputs.appname }}-x86.exe" || echo "rustdesk.exe"
+          mv "./rustdesk/rustdesk.exe" "./rustdesk/${{ inputs.appname }}.exe" || echo "rustdesk.exe"
           sed -i '/dpiAware/d' res/manifest.xml
           pushd ./libs/portable
           pip3 install -r requirements.txt
           python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${{ inputs.appname }}.exe"
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
+          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe"
 
       - name: zip exe
         continue-on-error: true
@@ -1004,7 +1004,7 @@ jobs:
 
       - name: rename rustdesk.exe to filename.exe
         run: |
-          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}-x86.exe" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x86.exe" || echo "rustdesk"
 
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
