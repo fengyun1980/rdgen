@@ -434,13 +434,15 @@ jobs:
           Remove-Item -Path usbmmidd_v2\Win32 -Recurse
           Remove-Item -Path "usbmmidd_v2\deviceinstaller64.exe", "usbmmidd_v2\deviceinstaller.exe", "usbmmidd_v2\usbmmidd.bat"
           mv ./flutter/build/windows/x64/runner/Release ./rustdesk
-          mv -Force .\usbmmidd_v2 ./rustdesk   
+          mv -Force .\usbmmidd_v2 ./rustdesk
+          
       - name: icon stuff
         if: ${{ inputs.iconlink != 'false' }}
         continue-on-error: true
         run: |
           mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak
           magick ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.svg
+          
       - name: logo stuff
         if: ${{ inputs.logolink != 'false' }}
         continue-on-error: true
@@ -518,7 +520,7 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${{ inputs.appname }}.exe"
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe"
+          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
 
@@ -568,13 +570,16 @@ jobs:
           Expand-Archive -Path ./SignOutput/signed_files.zip -DestinationPath ./SignOutput/ -Force
           Remove-Item ./SignOutput/unsigned_files.zip
           Remove-Item ./SignOutput/signed_files.zip
+          
       - name: rename rustdesk.exe to filename.exe
         run: |
-          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x86-64.exe" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}-${{ matrix.job.arch }}.exe" || echo "rustdesk"
+          
       - name: rename rustdesk.msi to filename.msi
         continue-on-error: true
         run: |
-          mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}.msi" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}.msi" || echo "rustdesk"
+          
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
@@ -896,13 +901,13 @@ jobs:
         continue-on-error: true
         run: |
           mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak
-          magick ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.svg
+          magick ./res/icon.png ./rustdesk/icon.svg
 
       - name: logo stuff
         if: ${{ inputs.logolink != 'false' }}
         continue-on-error: true
         run: |
-          Invoke-WebRequest -Uri ${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}"&"uuid=${{ fromJson(inputs.logolink).uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
+          Invoke-WebRequest -Uri ${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}"&"uuid=${{ fromJson(inputs.logolink).uuid }} -OutFile ./rustdesk/logo.png
 
 
       - name: find Runner.res
@@ -972,7 +977,7 @@ jobs:
           python3 ./generate.py -f ../../rustdesk/ -o . -e "../../rustdesk/${{ inputs.appname }}.exe"
           popd
           mkdir -p ./SignOutput
-          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}.exe"
+          mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
 
       - name: zip exe
         continue-on-error: true
@@ -1005,7 +1010,7 @@ jobs:
 
       - name: rename rustdesk.exe to filename.exe
         run: |
-          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}_x86.exe" || echo "rustdesk"
+          mv ./SignOutput/rustdesk.exe "./SignOutput/${{ inputs.filename }}-${{ env.VERSION }}-${{ matrix.job.arch }}.exe" || echo "rustdesk"
 
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
