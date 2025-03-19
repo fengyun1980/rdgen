@@ -1,6 +1,6 @@
 import io
 from pathlib import Path
-from django.http import HttpResponse, JsonResponse
+from django.http import HttpResponse, JsonResponse, FileWrapper
 from django.shortcuts import render
 from django.core.files.base import ContentFile
 import os
@@ -220,9 +220,9 @@ def generator_view(request):
             response = requests.post(url, json=data, headers=headers)
             print(response)
             if response.status_code == 204:
-                return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"Starting generator...please wait", 'platform':platform})
+                return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"正在初始化程序中...请稍等！", 'platform':platform})
             else:
-                return JsonResponse({"error": "Something went wrong"})
+                return JsonResponse({"error": "编译构建出了问题，请返回检查配置提交重新构建！"})
     else:
         form = GenerateForm()
     return render(request, 'generator.html', {'form': form})
@@ -242,17 +242,42 @@ def check_for_file(request):
         return render(request, 'waiting.html', {'filename':filename, 'uuid':uuid, 'status':status, 'platform':platform})
 
 def download(request):
-    filename = request.GET['filename']
-    uuid = request.GET['uuid']
-    #filename = filename+".exe"
-    file_path = os.path.join('exe',uuid,filename)
-    with open(file_path, 'rb') as file:
-        response = HttpResponse(file, headers={
-            'Content-Type': 'application/vnd.microsoft.portable-executable',
-            'Content-Disposition': f'attachment; filename="{filename}"'
-        })
-
-    return response
+    try:
+        filename = request.GET['filename']
+        uuid = request.GET['uuid']
+        
+        # Validate filename and uuid
+        if not re.match(r'^[\w\-\.]+$', filename) or not re.match(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', uuid):
+            return HttpResponse('Invalid filename or uuid', status=400)
+            
+        file_path = os.path.join('exe', uuid, filename)
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            return HttpResponse('File not found', status=404)
+            
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        
+        # Create streaming response
+        response = HttpResponse(
+            FileWrapper(open(file_path, 'rb')),
+            content_type='application/octet-stream'
+        )
+        
+        # Set headers
+        response['Content-Disposition'] = f'attachment; filename="{filename}"'
+        response['Content-Length'] = file_size
+        response['Accept-Ranges'] = 'bytes'
+        
+        # Enable streaming
+        response['Cache-Control'] = 'no-cache'
+        response['X-Accel-Buffering'] = 'no'
+        
+        return response
+        
+    except Exception as e:
+        return HttpResponse(f'Error downloading file: {str(e)}', status=500)
 
 def get_png(request):
     filename = request.GET['filename']
