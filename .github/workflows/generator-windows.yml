@@ -441,7 +441,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "已完成 50%, 大约还需要15分钟，请耐心等待."}'
 
       - name: Build rustdesk
         run: |
