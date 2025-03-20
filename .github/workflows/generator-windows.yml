@@ -609,8 +609,8 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ matrix.job.arch }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 60 --max-time 72000 --connect-timeout 12000 ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ matrix.job.arch }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 60 --max-time 72000 --connect-timeout 12000 ${{ secrets.GENURL }}/save_custom_client || true
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ matrix.job.arch }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 60 --max-time 180000 --connect-timeout 120000 ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ matrix.job.arch }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 60 --max-time 180000 --connect-timeout 120000 ${{ secrets.GENURL }}/save_custom_client || true
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
         with:
@@ -1041,4 +1041,4 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ matrix.job.arch }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 7200 --connect-timeout 600 ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}-${{ matrix.job.arch }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 3 --retry-all-errors --retry-delay 60 --max-time 180000 --connect-timeout 120000 ${{ secrets.GENURL }}/save_custom_client
