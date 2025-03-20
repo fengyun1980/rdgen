@@ -236,7 +236,7 @@ def check_for_file(request):
     status = gh_run.status
 
     #if file_exists:
-    if status == "Success":
+    if status == "编译构建已完成":
         return render(request, 'generated.html', {'filename': filename, 'uuid':uuid, 'platform':platform})
     else:
         return render(request, 'waiting.html', {'filename':filename, 'uuid':uuid, 'status':status, 'platform':platform})
@@ -277,7 +277,7 @@ def download(request):
         return response
         
     except Exception as e:
-        return HttpResponse(f'Error downloading file: {str(e)}', status=500)
+        return HttpResponse(f'下载文件时出错: {str(e)}', status=500)
 
 def get_png(request):
     filename = request.GET['filename']
@@ -386,10 +386,10 @@ def save_png(file, uuid, domain, name):
             decoded_img = base64.b64decode(encoded)
             file = ContentFile(decoded_img, name=name) # Create a file-like object
         except ValueError:
-            print("Invalid base64 data")
+            print("base64数据无效")
             return None  # Or handle the error as you see fit
         except Exception as e:  # Catch general exceptions during decoding
-            print(f"Error decoding base64: {e}")
+            print(f"解码base64时出错: {e}")
             return None
         
     with open(file_save_path, "wb+") as f:
