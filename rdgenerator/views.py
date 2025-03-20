@@ -220,7 +220,7 @@ def generator_view(request):
             response = requests.post(url, json=data, headers=headers)
             print(response)
             if response.status_code == 204:
-                return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"正在初始化程序中...请稍等！", 'platform':platform})
+                return render(request, 'waiting.html', {'filename':filename, 'uuid':myuuid, 'status':"程序正在初始化中。。。请稍候！", 'platform':platform})
             else:
                 return JsonResponse({"error": "编译构建出了问题，请返回检查配置提交重新构建！"})
     else:
@@ -295,7 +295,7 @@ def get_png(request):
 def create_github_run(myuuid):
     new_github_run = GithubRun(
         uuid=myuuid,
-        status="Starting generator...please wait"
+        status="程序正在初始化中。。。请稍候"
     )
     new_github_run.save()
 
@@ -317,7 +317,7 @@ def resize_and_encode_icon(imagefile):
             img = Image.open(image_buffer)
             imgcopy = img.copy()
     except (IOError, OSError):
-        raise ValueError("Uploaded file is not a valid image format.")
+        raise ValueError("上传的文件不是有效的图像格式.")
 
     # Check if resizing is necessary
     if img.size[0] <= maxWidth:
@@ -411,4 +411,4 @@ def save_custom_client(request):
         for chunk in file.chunks():
             f.write(chunk)
 
-    return HttpResponse("File saved successfully!")
+    return HttpResponse("文件保存成功!")
