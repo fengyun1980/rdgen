@@ -617,7 +617,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "编译构建已完成"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "Success"}'
 
       - name: failed
         if: failure()
