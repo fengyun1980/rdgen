@@ -41,12 +41,12 @@ on:
       appname:
         description: "app name"
         required: true
-        default: 'rustdesk'
+        default: 'RustDesk远程协助'
         type: string
       filename:
         description: "Filename"
         required: true
-        default: 'rustdesk'
+        default: 'RustDesk'
         type: string
       extras:
         description: "extra inputs in json"
