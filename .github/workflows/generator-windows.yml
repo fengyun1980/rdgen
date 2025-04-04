@@ -41,7 +41,7 @@ on:
       appname:
         description: "app name"
         required: true
-        default: 'RustDesk远程协助'
+        default: 'RustDesk'
         type: string
       filename:
         description: "Filename"
