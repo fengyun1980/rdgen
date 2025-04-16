@@ -46,6 +46,10 @@ jobs:
           yarn install && yarn build
           popd
 
+          if [ ! -d "flutter/web/v2" ]; then
+            mkdir -p flutter/web/v2
+            echo "Directory flutter/web/v2 created."
+          fi
           pushd flutter/web/v2
           wget https://github.com/rustdesk/doc.rustdesk.com/releases/download/console/web_deps.tar.gz
           tar xzf web_deps.tar.gz
