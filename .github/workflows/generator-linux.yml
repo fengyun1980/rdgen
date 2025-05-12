@@ -797,7 +797,7 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./flatpak/${{ inputs.filename }}-${{ matrix.job.arch }}.flatpak" -F "uuid=${{ inputs.uuid }}" ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./flatpak/${{ inputs.filename }}-${{ matrix.job.arch }}.flatpak" -F "uuid=${{ inputs.uuid }}"  --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180   ${{ secrets.GENURL }}/save_custom_client
           
       - name: send file to api server
         if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
