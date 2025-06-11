@@ -684,42 +684,48 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
+          # 定义上传函数
           upload_file() {
             local file_path="$1"
-            local file_type="$2"
-            local max_retries=10
-            local retry_delay=15
-            local attempt=0
-
-            while true; do
-              # 尝试上传文件
-              response=$(curl -i -X POST -H "Content-Type: multipart/form-data" \
-                -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
-                -F "file=@${file_path}" \
-                -F "uuid=${{ inputs.uuid }}" \
-                --write-out '%{http_code}' \
-                --silent \
-                --output /dev/null \
-                ${{ secrets.GENURL }}/save_custom_client)
-
-              # 检查HTTP状态码
-              if [[ "$response" == "200" ]]; then
-                echo "File $file_type uploaded successfully."
-                break
-              else
-                echo "Failed to upload $file_type, status code: $response. Retrying in $retry_delay seconds..."
-                sleep $retry_delay
-                ((attempt++))
-
-                # 如果超过最大重试次数，则终止
-                if [[ $attempt -ge $max_retries ]]; then
-                  echo "Failed to upload $file_type after $max_retries attempts. Exiting."
-                  exit 1
-                fi
-              fi
-            done
+            curl -i -X POST -H "Content-Type: multipart/form-data" \
+                 -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
+                 -F "file=@$file_path" \
+                 -F "uuid=${{ inputs.uuid }}" \
+                 --retry 5 \
+                 --retry-all-errors \
+                 --retry-delay 15 \
+                 --max-time 300 \
+                 --connect-timeout 180 \
+                 ${{ secrets.GENURL }}/save_custom_client
           }
-              
+      
+          # 上传 .exe 文件
+          file_exe="./SignOutput/${{ inputs.filename }}.exe"
+          while true; do
+            echo "Uploading $file_exe..."
+            response=$(upload_file "$file_exe")
+            if echo "$response" | grep -q "HTTP/1.1 200"; then
+              echo "Upload of $file_exe succeeded."
+              break
+            else
+              echo "Upload of $file_exe failed. Retrying in 15 seconds..."
+              sleep 15
+            fi
+          done
+      
+          # 上传 .msi 文件
+          file_msi="./SignOutput/${{ inputs.filename }}.msi"
+          while true; do
+            echo "Uploading $file_msi..."
+            response=$(upload_file "$file_msi")
+            if echo "$response" | grep -q "HTTP/1.1 200"; then
+              echo "Upload of $file_msi succeeded."
+              break
+            else
+              echo "Upload of $file_msi failed. Retrying in 15 seconds..."
+              sleep 15
+            fi
+          done  
 
       - name: send file to api server
         if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
@@ -753,3 +759,8 @@ jobs:
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation cancelled, try again"}'
+
+
+
+
+
