@@ -691,11 +691,6 @@ jobs:
                  -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
                  -F "file=@$file_path" \
                  -F "uuid=${{ inputs.uuid }}" \
-                 --retry 5 \
-                 --retry-all-errors \
-                 --retry-delay 15 \
-                 --max-time 300 \
-                 --connect-timeout 180 \
                  ${{ secrets.GENURL }}/save_custom_client
           }
       
@@ -714,18 +709,18 @@ jobs:
           done
       
           # 上传 .msi 文件
-          file_msi="./SignOutput/${{ inputs.filename }}.msi"
-          while true; do
-            echo "Uploading $file_msi..."
-            response=$(upload_file "$file_msi")
-            if echo "$response" | grep -q "HTTP/1.1 200"; then
-              echo "Upload of $file_msi succeeded."
-              break
-            else
-              echo "Upload of $file_msi failed. Retrying in 15 seconds..."
-              sleep 15
-            fi
-          done  
+          #file_msi="./SignOutput/${{ inputs.filename }}.msi"
+          #while true; do
+            #echo "Uploading $file_msi..."
+            #response=$(upload_file "$file_msi")
+            #if echo "$response" | grep -q "HTTP/1.1 200"; then
+              #echo "Upload of $file_msi succeeded."
+              #break
+            #else
+              #echo "Upload of $file_msi failed. Retrying in 15 seconds..."
+              #sleep 15
+            #fi
+          #done  
 
       - name: send file to api server
         if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
