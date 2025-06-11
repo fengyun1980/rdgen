@@ -674,63 +674,13 @@ jobs:
         run: |
           mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}.msi" || echo "rustdesk"
 
-      # - name: send file to rdgen server
-      #  if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
-      #  shell: bash
-      #  run: |
-      #    curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client
-      #    curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client || true
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          # 定义上传函数
-          upload_file() {
-            local file_path="$1"
-            local response=$(curl -i -X POST -H "Content-Type: multipart/form-data" \
-                               -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
-                               -F "file=@$file_path" \
-                               -F "uuid=${{ inputs.uuid }}" \
-                               -o /dev/null -w "%{http_code}" \
-                               ${{ secrets.GENURL }}/save_custom_client)
-            echo "$response"
-          }
-      
-          # 上传 .exe 文件
-          file_exe="./SignOutput/${{ inputs.filename }}.exe"
-          while true; do
-            echo "Uploading $file_exe..."
-            http_status=$(upload_file "$file_exe")
-            if [[ "$http_status" =~ ^[0-9]+$ ]]; then  # 检查是否为数字
-              if [ "$http_status" -eq 200 ]; then
-                echo "Upload of $file_exe succeeded."
-                break
-              else
-                echo "Upload of $file_exe failed with status code $http_status. Retrying in 15 seconds..."
-              fi
-            else
-              echo "Upload of $file_exe failed with unexpected response: $http_status. Retrying in 15 seconds..."
-            fi
-            sleep 15
-          done
-      
-          # 上传 .msi 文件
-          file_msi="./SignOutput/${{ inputs.filename }}.msi"
-          while true; do
-            echo "Uploading $file_msi..."
-            http_status=$(upload_file "$file_msi")
-            if [[ "$http_status" =~ ^[0-9]+$ ]]; then  # 检查是否为数字
-              if [ "$http_status" -eq 200 ]; then
-                echo "Upload of $file_msi succeeded."
-                break
-              else
-                echo "Upload of $file_msi failed with status code $http_status. Retrying in 15 seconds..."
-              fi
-            else
-              echo "Upload of $file_msi failed with unexpected response: $http_status. Retrying in 15 seconds..."
-            fi
-            sleep 15
-          done
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client || true
+
 
       - name: send file to api server
         if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
