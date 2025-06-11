@@ -674,12 +674,52 @@ jobs:
         run: |
           mv ./SignOutput/rustdesk.msi "./SignOutput/${{ inputs.filename }}.msi" || echo "rustdesk"
 
+      # - name: send file to rdgen server
+      #  if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
+      #  shell: bash
+      #  run: |
+      #    curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client
+      #    curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client || true
       - name: send file to rdgen server
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client || true
+          upload_file() {
+            local file_path="$1"
+            local file_type="$2"
+            local max_retries=10
+            local retry_delay=15
+            local attempt=0
+
+            while true; do
+              # 尝试上传文件
+              response=$(curl -i -X POST -H "Content-Type: multipart/form-data" \
+                -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" \
+                -F "file=@${file_path}" \
+                -F "uuid=${{ inputs.uuid }}" \
+                --write-out '%{http_code}' \
+                --silent \
+                --output /dev/null \
+                ${{ secrets.GENURL }}/save_custom_client)
+
+              # 检查HTTP状态码
+              if [[ "$response" == "200" ]]; then
+                echo "File $file_type uploaded successfully."
+                break
+              else
+                echo "Failed to upload $file_type, status code: $response. Retrying in $retry_delay seconds..."
+                sleep $retry_delay
+                ((attempt++))
+
+                # 如果超过最大重试次数，则终止
+                if [[ $attempt -ge $max_retries ]]; then
+                  echo "Failed to upload $file_type after $max_retries attempts. Exiting."
+                  exit 1
+                fi
+              fi
+            done
+          }
+              
 
       - name: send file to api server
         if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
