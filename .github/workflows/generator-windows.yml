@@ -678,16 +678,8 @@ jobs:
         if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
         shell: bash
         run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry 5 --retry-all-errors --retry-delay 15 --max-time 300 --connect-timeout 180  ${{ secrets.GENURL }}/save_custom_client || true
-
-
-      - name: send file to api server
-        if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
-        shell: bash
-        run: |
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" ${{ inputs.apiServer }}/api/save_custom_client
-          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" ${{ inputs.apiServer }}/api/save_custom_client || true
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.exe" -F "uuid=${{ inputs.uuid }}" --retry-all-errors --retry 30 --retry-delay 10 --max-time 3600 ${{ secrets.GENURL }}/save_custom_client
+          curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ fromJson(inputs.extras).token }}" -F "file=@./SignOutput/${{ inputs.filename }}.msi" -F "uuid=${{ inputs.uuid }}" --retry-all-errors --retry 30 --retry-delay 10 --max-time 3600 ${{ secrets.GENURL }}/save_custom_client || true
 
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
