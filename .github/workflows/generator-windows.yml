@@ -156,6 +156,15 @@ jobs:
           repository: rustdesk/rustdesk
           submodules: recursive
 
+      - name: Report Status
+        uses: fjogeleit/http-request-action@v1
+        continue-on-error: true
+        with:
+          url: ${{ env.STATUS_URL }}
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "10% complete"}'      
+
       - name: Restore bridge files
         uses: actions/download-artifact@master
         with:
@@ -215,6 +224,15 @@ jobs:
           sed -i -e 's|{subkey}|\\\"{subkey}\\\"|' ./src/platform/windows.rs
           sed -i -e 's|reg delete HKEY_CLASSES_ROOT\\\\.{ext} /f|reg delete \\\"HKEY_CLASSES_ROOT\\\\.{ext}\\\" /f|' ./src/platform/windows.rs
           sed -i -e 's|reg delete HKEY_CLASSES_ROOT\\\\{ext} /f|reg delete \\\"HKEY_CLASSES_ROOT\\\\{ext}\\\" /f|' ./src/platform/windows.rs
+
+      - name: Report Status
+        uses: fjogeleit/http-request-action@v1
+        continue-on-error: true
+        with:
+          url: ${{ env.STATUS_URL }}
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
           
       - name: change company name
         if: fromJson(inputs.extras).compname != 'Purslane Ltd'
@@ -271,12 +289,6 @@ jobs:
           Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
           git apply removeSetupServerTip.diff
 
-
-      - name: Install LLVM and Clang
-        uses: KyleMayes/install-llvm-action@v1
-        with:
-          version: ${{ env.LLVM_VERSION }}
-
       - name: Report Status
         uses: fjogeleit/http-request-action@v1
         continue-on-error: true
@@ -284,7 +296,12 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "10% complete"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "30% complete"}'
+
+      - name: Install LLVM and Clang
+        uses: KyleMayes/install-llvm-action@v1
+        with:
+          version: ${{ env.LLVM_VERSION }}
 
       - name: Install flutter
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
@@ -323,20 +340,11 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "40% complete"}'
 
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
-        
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
-        continue-on-error: true
-        with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
@@ -373,6 +381,15 @@ jobs:
           mv ./res/icon.ico ./res/icon.ico.bak
           mv ./res/icon.png ./res/icon.png.bak
           mv ./res/tray-icon.ico ./res/tray-icon.ico.bak
+
+      - name: Report Status
+        uses: fjogeleit/http-request-action@v1
+        continue-on-error: true
+        with:
+          url: ${{ env.STATUS_URL }}
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "50% complete"}'
 
       - name: magick stuff
         if: ${{ inputs.iconlink != 'false' }}
@@ -422,6 +439,15 @@ jobs:
           Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/xoffline.diff -OutFile xoffline.diff
           git apply xoffline.diff
 
+      - name: Report Status
+        uses: fjogeleit/http-request-action@v1
+        continue-on-error: true
+        with:
+          url: ${{ env.STATUS_URL }}
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "60% complete"}'
+
       - name: hide-cm
         continue-on-error: true
         if: fromJson(inputs.extras).hidecm == 'true'
@@ -447,16 +473,6 @@ jobs:
                 <security> \
                   <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/> \
                 </security>' ./flutter/windows/runner/runner.exe.manifest
-          
-
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
-        continue-on-error: true
-        with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "25% complete"}'
 
       - name: replace flutter icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -475,7 +491,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
 
       - name: Build rustdesk
         run: |
@@ -561,7 +577,7 @@ jobs:
           url: ${{ env.STATUS_URL }}
           method: 'POST'
           customHeaders: '{"Content-Type": "application/json"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "80% complete, this step takes about 5 minutes, be patient."}'
       
       - name: zip dlls
         continue-on-error: true
@@ -610,6 +626,15 @@ jobs:
           popd
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
+
+      - name: Report Status
+        uses: fjogeleit/http-request-action@v1
+        continue-on-error: true
+        with:
+          url: ${{ env.STATUS_URL }}
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ inputs.uuid }}", "status": "90% complete"}'
 
       - name: Add MSBuild to PATH
         uses: microsoft/setup-msbuild@v2
