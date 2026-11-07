@@ -1,0 +1,8 @@
+# Pinned to ranges verified to work together. The upper bounds guard against a
+# future major release removing an API this project relies on -- the old
+# `django.__version__.split('.')[0] >= '4'` string check would have broken
+# exactly this way on Django 10 (django.conf.urls.url was removed in 4.0).
+Django>=5.0,<6.2
+requests>=2.31,<3
+pillow>=10.0,<14
+gunicorn>=21.2,<24

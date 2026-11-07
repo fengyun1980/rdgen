@@ -1,0 +1,50 @@
+services:
+  rdgen:
+    # Build from the local Dockerfile so the security fixes and Chinese UI take
+    # effect. To instead run a published image, comment out `build` and
+    # uncomment the `image` line below (note: a published image predates these
+    # fixes and expects db/exe/png inside the container, so the DATA_ROOT/volume
+    # wiring here would not match it).
+    build:
+      context: .
+      dockerfile: Dockerfile
+    # image: bryangerlach/rdgen:dev
+    restart: unless-stopped
+    environment:
+      # Generate a real key, e.g.:
+      #   python3 -c 'import secrets; print(secrets.token_urlsafe(64))'
+      # The previous value here was the insecure default hardcoded in settings.py
+      # and shared by every compose-based deployment, so sessions could be forged.
+      SECRET_KEY: "CHANGE_ME_run_secrets_token_urlsafe"
+      GHUSER: "github_username"
+      GHBEARER: "github_access_token"
+      GENURL: "accessible_url_of_server"
+      PROTOCOL: "https"
+      REPONAME: "rdgen"
+      GHBRANCH: "master"
+      # Shared secret for the machine-to-machine callbacks (/updategh,
+      # /save_custom_client, /startgh, /creategh). Must match the repository
+      # secret named CALLBACK_TOKEN that the workflows send as a Bearer token.
+      # Generate with: python3 -c 'import secrets; print(secrets.token_urlsafe(32))'
+      # Leave empty and those endpoints reject every request (fail closed).
+      CALLBACK_TOKEN: "CHANGE_ME_callback_token"
+      # Restrict accepted Host headers. '*' would let a forged Host header point
+      # the build runners at an attacker-controlled URL for icon/logo download.
+      # Comma separated, no scheme: e.g. "rdgen.example.com,localhost:8000".
+      ALLOWED_HOSTS: "localhost:8000"
+      # Where db.sqlite3, exe/ and png/ live inside the container. Mounted below
+      # so builds and run records survive restarts.
+      DATA_ROOT: "/opt/rdgen/data"
+      # DEBUG stays off in production; set to "true" only for troubleshooting.
+      DEBUG: "false"
+    volumes:
+      # Persist the database and all generated artifacts / uploaded images.
+      # Without this the container recreate wiped every build and run record.
+      - rdgen-data:/opt/rdgen/data
+    ports:
+      - "8000:8000"
+    dns:
+      - 8.8.8.8
+
+volumes:
+  rdgen-data:
