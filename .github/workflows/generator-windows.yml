@@ -525,6 +525,57 @@ jobs:
             rm -f "$DEST.part"
           fi
 
+      # ---------------------------------------------------------------- pkg-config
+      # aom BUILT successfully (both dbg and rel) and then failed in
+      # vcpkg_fixup_pkgconfig -> vcpkg_find_acquire_program(PKGCONFIG) ->
+      # vcpkg_acquire_msys, which tries to download
+      #   msys2-msys2-runtime-3.5.4-2-x86_64.pkg.tar.zst
+      # from six mirrors. That exact version has been rotated out of the
+      # repositories (only 3.5.7-5/6 remain), so all six return 404 and the port
+      # aborts. Nothing about the build itself is wrong.
+      #
+      # vcpkg_find_acquire_program(PKGCONFIG) short-circuits when PKG_CONFIG is
+      # already set in the environment:
+      #     if(DEFINED "ENV{PKG_CONFIG}") ... return()
+      # so providing a working pkg-config.exe skips the msys2 download entirely.
+      # The pkgconf package itself still downloads fine (86 KB, verified), only
+      # the runtime bundle is gone.
+      - name: Provide pkg-config (msys2-runtime 3.5.4-2 was rotated out of mirrors)
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $root = "C:\pkgconf"
+          $pkg  = Join-Path $root "mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
+          $url  = "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
+          New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          if (-not (Test-Path $pkg) -or (Get-Item $pkg).Length -lt 50000) {
+            try {
+              Invoke-WebRequest -Uri $url -OutFile $pkg -UseBasicParsing -TimeoutSec 300
+            } catch {
+              Write-Host "::warning::could not fetch pkgconf: $($_.Exception.Message)"
+              exit 0
+            }
+          }
+
+          # Windows 11 / Server 2022 ship bsdtar as tar.exe, which reads zstd.
+          Push-Location $root
+          tar -xf $pkg 2>&1 | Out-Null
+          $exe = Join-Path $root "mingw64\bin\pkg-config.exe"
+          Pop-Location
+
+          if (Test-Path $exe) {
+            Write-Host "pkg-config ready: $exe"
+            & $exe --version
+            # Persist for the following steps (and for vcpkg's child processes).
+            "PKG_CONFIG=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+            Split-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          } else {
+            Write-Host "::warning::pkg-config.exe not found after extraction; vcpkg will fetch msys2 itself"
+          }
+          exit 0
+
       - name: Install vcpkg dependencies
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
