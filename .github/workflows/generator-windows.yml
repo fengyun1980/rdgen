@@ -377,13 +377,29 @@ jobs:
             install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
             --x-install-root="$VCPKG_ROOT/installed"; then
-            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
-              echo "$_1:"
-              echo "======"
-              cat "$_1"
-              echo "======"
-              echo ""
+            echo "============= BUILD FAILED ============="
+            # Print the actual errors first. The previous version cat'ed every
+            # .log file, which buried the one useful line under thousands of
+            # CMakeCache.txt dump lines and made the failure undiagnosable.
+            echo "----- error lines -----"
+            find "${VCPKG_ROOT}/buildtrees" -name "*.log" -type f 2>/dev/null | while read -r f; do
+              grep -nEi "error|failed|FAILED|cannot open|No such file" "$f" 2>/dev/null \
+                | head -n 15 | sed "s|^|$(basename "$(dirname "$f")")/[$(basename "$f")] |"
+            done | head -n 120
+            echo "----- failing port log tails -----"
+            for p in aom ffmpeg libvpx opus libyuv libjpeg-turbo; do
+              d="${VCPKG_ROOT}/buildtrees/${p}"
+              [ -d "$d" ] || continue
+              echo "##### ${p} #####"
+              find "$d" -name "*.log" -type f 2>/dev/null | while read -r f; do
+                case "$(basename "$f")" in
+                  *CMakeCache*) continue ;;   # noise, skip
+                esac
+                echo "--- $f (last 40) ---"
+                tail -n 40 "$f"
+              done
             done
+            echo "========================================"
             exit 1
           fi
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
