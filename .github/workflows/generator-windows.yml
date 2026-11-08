@@ -548,16 +548,41 @@ jobs:
           $root = "C:\pkgconf"
           $pkg  = Join-Path $root "mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
           $url  = "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
+          # SHA512 published by vcpkg itself in
+          # scripts/cmake/vcpkg_find_acquire_program(PKGCONFIG).cmake at
+          # VCPKG_COMMIT_ID -- an authoritative source, not a guess.
+          $sha512 = "5373f050060678166968e09a4dd8ad30324c5dc37842c3517ebc9eb7be7e09d37d2873ff9dc4831c283556b68a0776f06fa6f91d799020b04282b4a3f378a2c4"
           New-Item -ItemType Directory -Force -Path $root | Out-Null
 
-          if (-not (Test-Path $pkg) -or (Get-Item $pkg).Length -lt 50000) {
-            try {
-              Invoke-WebRequest -Uri $url -OutFile $pkg -UseBasicParsing -TimeoutSec 300
-            } catch {
-              Write-Host "::warning::could not fetch pkgconf: $($_.Exception.Message)"
+          function Test-Pkgconf {
+            param($Path)
+            if (-not (Test-Path $Path)) { return $false }
+            if ((Get-Item $Path).Length -lt 50000) { return $false }
+            $actual = (Get-FileHash -Path $Path -Algorithm SHA512).Hash.ToLower()
+            return ($actual -eq $sha512)
+          }
+
+          if (-not (Test-Pkgconf $pkg)) {
+            Remove-Item $pkg -Force -ErrorAction SilentlyContinue
+            $ok = $false
+            foreach ($attempt in 1..4) {
+              try {
+                Invoke-WebRequest -Uri $url -OutFile "$pkg.part" -UseBasicParsing -TimeoutSec 180 -UserAgent "Mozilla/5.0"
+                Move-Item "$pkg.part" $pkg -Force
+                if (Test-Pkgconf $pkg) { $ok = $true; break }
+                Write-Host "::warning::attempt $attempt got a bad archive (checksum mismatch); retrying"
+                Remove-Item $pkg -Force -ErrorAction SilentlyContinue
+              } catch {
+                Write-Host "::warning::attempt $attempt failed: $($_.Exception.Message)"
+                Start-Sleep -Seconds (10 * $attempt)
+              }
+            }
+            if (-not $ok) {
+              Write-Host "::error::could not fetch a valid pkgconf archive after 4 attempts"
               exit 0
             }
           }
+          Write-Host "pkgconf archive verified (SHA512 ok)"
 
           # Windows 11 / Server 2022 ship bsdtar as tar.exe, which reads zstd.
           Push-Location $root
@@ -568,13 +593,23 @@ jobs:
           if (Test-Path $exe) {
             Write-Host "pkg-config ready: $exe"
             & $exe --version
-            # Persist for the following steps (and for vcpkg's child processes).
-            "PKG_CONFIG=$exe" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
-            Split-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+            # NOTE: PowerShell 5.1's `Out-File -Encoding utf8` emits a BOM. In
+            # GITHUB_ENV that BOM glues itself to the FIRST variable name, so
+            # "PKG_CONFIG=x" silently becomes "\uFEFFPKG_CONFIG=x" and vcpkg
+            # never sees it. Write UTF-8 *without* BOM instead.
+            # The following step ALSO exports PKG_CONFIG inside its own shell,
+            # which is the path that actually matters (see there).
+            [System.IO.File]::AppendAllText(
+              $env:GITHUB_ENV, "PKG_CONFIG=$exe`n",
+              (New-Object System.Text.UTF8Encoding($false)))
+            Split-Path $exe | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding ascii
+            # Do not fail this step: the next step exports PKG_CONFIG itself,
+            # so the build can still proceed if extraction failed.
+            exit 0
           } else {
-            Write-Host "::warning::pkg-config.exe not found after extraction; vcpkg will fetch msys2 itself"
+            Write-Host "::error::pkg-config.exe not found after extraction; the msys2-runtime 3.5.4-2 download will 404"
+            exit 0
           }
-          exit 0
 
       - name: Install vcpkg dependencies
         env:
@@ -587,6 +622,22 @@ jobs:
           #
           # No `set -o pipefail` here: `... 2>&1 | tee` would make the pipeline
           # report the exit status of tee, masking the real success of vcpkg.
+          # ---- pkg-config must be exported HERE, in the same step ----
+          # The failure trace
+          #   vcpkg_acquire_msys.cmake:212 -> vcpkg_find_acquire_program(PKGCONFIG).cmake:52
+          # is only reachable when ENV{PKG_CONFIG} is undefined, so the earlier
+          # step's GITHUB_ENV write did not reach this process. Exporting in this
+          # same shell guarantees inheritance by vcpkg.
+          # Use a forward-slash Windows path: this is Git Bash, but the consumer
+          # is native CMake, which cannot execute "/c/..." POSIX paths.
+          PKGCONF_EXE="C:/pkgconf/mingw64/bin/pkg-config.exe"
+          if [ -f "$PKGCONF_EXE" ] && "$PKGCONF_EXE" --version >/dev/null 2>&1; then
+            export PKG_CONFIG="$PKGCONF_EXE"
+            echo "pkg-config for vcpkg: $PKG_CONFIG (version $("$PKGCONF_EXE" --version))"
+          else
+            echo "::warning::pkg-config not runnable here; relying on the patched msys2-runtime URL"
+          fi
+
           LOG=/tmp/vcpkg-install.log
           $VCPKG_ROOT/vcpkg install \
             --triplet ${{ matrix.job.vcpkg-triplet }} \
