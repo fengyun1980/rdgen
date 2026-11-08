@@ -1,0 +1,50 @@
+name: Report build status
+description: >
+  POST a status update to the rdgen server. Centralised so the token wiring and
+  the "Success" sentinel live in exactly one place; the server decides whether to
+  show the download page via (status or "").lower() == "success".
+
+inputs:
+  status-url:
+    description: Full URL of the /updategh endpoint
+    required: true
+  token:
+    description: Shared CALLBACK_TOKEN secret
+    required: true
+  uuid:
+    description: Build request UUID
+    required: true
+  status:
+    description: Status text shown on the waiting page. Use "Success" on completion.
+    required: true
+
+runs:
+  using: composite
+  steps:
+    - name: POST status
+      shell: bash
+      env:
+        URL: ${{ inputs.status-url }}
+        TOKEN: ${{ inputs.token }}
+        UUID: ${{ inputs.uuid }}
+        STATUS: ${{ inputs.status }}
+      run: |
+        set -u
+        if [ -z "${URL:-}" ]; then
+          echo "::warning::status-url is empty; skipping status report"
+          exit 0
+        fi
+        # JSON-encode via python so quotes/newlines in STATUS cannot break the body.
+        BODY=$(python -c 'import json,os;print(json.dumps({"uuid":os.environ["UUID"],"status":os.environ["STATUS"]}))')
+        code=$(curl -sS -o /tmp/status_resp.txt -w '%{http_code}' \
+          -X POST "$URL" \
+          -H 'Content-Type: application/json' \
+          -H "Authorization: Bearer ${TOKEN:-}" \
+          --retry 3 --retry-delay 2 --retry-all-errors --max-time 30 \
+          -d "$BODY" || echo "000")
+        echo "status report -> HTTP $code (status=${STATUS})"
+        cat /tmp/status_resp.txt 2>/dev/null || true
+        # Never fail the job because a status ping failed.
+        if [ "$code" != "200" ]; then
+          echo "::warning::status report returned HTTP $code"
+        fi
