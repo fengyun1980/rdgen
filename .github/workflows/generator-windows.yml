@@ -265,18 +265,58 @@ jobs:
       # GitHub Releases returned 504 six times in a row for this file. The stock
       # installer (directory= is its INSTALL TARGET, not a local package dir;
       # url= overrides the download source) retries only twice and then aborts.
-      # Pre-seed the installer with backoff, then run it silently ourselves when
-      # that succeeded; otherwise fall back to the action.
+      #
+      # Implemented INLINE on purpose: an earlier version called a composite
+      # action under .github/actions/, which failed with "Can't find
+      # 'action.yml'" whenever that directory had not been committed. Keeping the
+      # logic in the workflow removes that dependency entirely.
       - name: Pre-seed LLVM installer (GitHub Releases returns intermittent 504)
         id: llvm_seed
-        uses: ./.rdgen-actions/.github/actions/robust-download
-        with:
-          url: https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/LLVM-${{ env.LLVM_VERSION }}-win64.exe
-          dest: C:\llvm-installer\LLVM-${{ env.LLVM_VERSION }}-win64.exe
-          min-bytes: '104857600'
-          attempts: '10'
-          expect-magic: MZ
-          fail-on-error: 'false'
+        shell: pwsh
+        continue-on-error: true
+        env:
+          LLVM_VER: ${{ env.LLVM_VERSION }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dest = "C:\llvm-installer\LLVM-$env:LLVM_VER-win64.exe"
+          $url  = "https://github.com/llvm/llvm-project/releases/download/llvmorg-$env:LLVM_VER/LLVM-$env:LLVM_VER-win64.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+          "downloaded=false" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+          if ((Test-Path $dest) -and ((Get-Item $dest).Length -gt 100MB)) {
+            Write-Host "already present: $dest"
+            "downloaded=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+            exit 0
+          }
+
+          $attempt = 0
+          $delay = 5
+          while ($attempt -lt 10) {
+            $attempt++
+            Write-Host "attempt $attempt/10 -> $url"
+            try {
+              # -UseBasicParsing keeps this working on older PS without IE engine
+              Invoke-WebRequest -Uri $url -OutFile "$dest.part" -UseBasicParsing -TimeoutSec 1800
+              if ((Test-Path "$dest.part") -and ((Get-Item "$dest.part").Length -gt 100MB)) {
+                Move-Item -Force "$dest.part" $dest
+                Write-Host ("downloaded ok: {0:N1} MB" -f ((Get-Item $dest).Length/1MB))
+                "downloaded=true" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+                exit 0
+              }
+              Write-Host "  too small, discarding"
+              Remove-Item -Force "$dest.part" -ErrorAction SilentlyContinue
+            } catch {
+              Write-Host "  download failed: $($_.Exception.Message)"
+              Remove-Item -Force "$dest.part" -ErrorAction SilentlyContinue
+            }
+            if ($attempt -lt 10) {
+              Write-Host "  waiting ${delay}s"
+              Start-Sleep -Seconds $delay
+              $delay = [Math]::Min($delay * 2, 60)
+            }
+          }
+          Write-Host "::warning::LLVM pre-seed failed after 10 attempts; the fallback action will retry"
+          exit 0
 
       - name: Install LLVM from pre-seeded installer
         if: ${{ steps.llvm_seed.outputs.downloaded == 'true' }}
@@ -356,15 +396,41 @@ jobs:
       # run-vcpkg clones the repo then runs bootstrap-vcpkg.bat, which fetches
       # vcpkg.exe from GitHub Releases. That download hit 504 repeatedly (2 of 4
       # probes failed). Pre-seeding the exe lets bootstrap reuse it instead of
-      # downloading, and only costs one extra step.
+      # downloading. Inline (not a composite action) so it cannot fail with
+      # "Can't find 'action.yml'" when only part of .github/ got committed.
       - name: Pre-seed vcpkg.exe (bootstrap download returns intermittent 504)
-        uses: ./.rdgen-actions/.github/actions/robust-download
-        with:
-          url: https://github.com/microsoft/vcpkg-tool/releases/download/2025-03-22/vcpkg.exe
-          dest: C:\vcpkg\vcpkg.exe
-          min-bytes: '1048576'
-          attempts: '10'
-          expect-magic: MZ
+        shell: pwsh
+        continue-on-error: true
+        run: |
+          $ErrorActionPreference = 'Continue'
+          $dest = "C:\vcpkg\vcpkg.exe"
+          $url  = "https://github.com/microsoft/vcpkg-tool/releases/download/2025-03-22/vcpkg.exe"
+          New-Item -ItemType Directory -Force -Path (Split-Path $dest) | Out-Null
+          if ((Test-Path $dest) -and ((Get-Item $dest).Length -gt 1MB)) {
+            Write-Host "already present: $dest"
+            exit 0
+          }
+          $attempt = 0
+          $delay = 5
+          while ($attempt -lt 10) {
+            $attempt++
+            Write-Host "attempt $attempt/10 -> $url"
+            try {
+              Invoke-WebRequest -Uri $url -OutFile "$dest.part" -UseBasicParsing -TimeoutSec 300
+              if ((Test-Path "$dest.part") -and ((Get-Item "$dest.part").Length -gt 1MB)) {
+                Move-Item -Force "$dest.part" $dest
+                Write-Host ("seeded vcpkg.exe: {0:N1} MB" -f ((Get-Item $dest).Length/1MB))
+                exit 0
+              }
+              Remove-Item -Force "$dest.part" -ErrorAction SilentlyContinue
+            } catch {
+              Write-Host "  failed: $($_.Exception.Message)"
+              Remove-Item -Force "$dest.part" -ErrorAction SilentlyContinue
+            }
+            if ($attempt -lt 10) { Start-Sleep -Seconds $delay; $delay = [Math]::Min($delay * 2, 60) }
+          }
+          Write-Host "::warning::vcpkg.exe pre-seed failed; bootstrap will download it itself"
+          exit 0
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
