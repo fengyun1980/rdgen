@@ -480,14 +480,19 @@ jobs:
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
         shell: bash
 
+      # Only upload when the collector actually produced something. `if: failure()`
+      # alone fires for ANY earlier failure, including ones that never reached the
+      # vcpkg step -- which produced the noisy
+      # "No files were found with the provided path: vcpkg-failure-logs/".
       - name: Upload vcpkg failure logs
-        if: failure()
+        if: ${{ failure() && hashFiles('vcpkg-failure-logs/**') != '' }}
         continue-on-error: true
         uses: actions/upload-artifact@v4
         with:
           name: vcpkg-failure-logs
           path: vcpkg-failure-logs/
           retention-days: 7
+          if-no-files-found: ignore
 
       - name: icon stuff
         if: ${{ inputs.iconlink != 'false' }}
