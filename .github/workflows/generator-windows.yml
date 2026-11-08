@@ -373,31 +373,35 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
-          if ! $VCPKG_ROOT/vcpkg \
-            install \
-            --triplet ${{ matrix.job.vcpkg-triplet }} \
-            --x-install-root="$VCPKG_ROOT/installed"; then
+          # Capture the FULL stdout/stderr of the install. vcpkg prints the
+          # CMake failure to stdout (not only into buildtrees/*.log), so the
+          # previous "grep the .log files" approach found nothing and only the
+          # CMakeCache dump -- which vcpkg prints on failure -- was visible.
+          set -o pipefail
+          LOG=/tmp/vcpkg-install.log
+          if $VCPKG_ROOT/vcpkg install \
+               --triplet ${{ matrix.job.vcpkg-triplet }} \
+               --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee "$LOG"; then
+            echo "vcpkg install OK"
+          else
             echo "============= BUILD FAILED ============="
-            # Print the actual errors first. The previous version cat'ed every
-            # .log file, which buried the one useful line under thousands of
-            # CMakeCache.txt dump lines and made the failure undiagnosable.
-            echo "----- error lines -----"
-            find "${VCPKG_ROOT}/buildtrees" -name "*.log" -type f 2>/dev/null | while read -r f; do
-              grep -nEi "error|failed|FAILED|cannot open|No such file" "$f" 2>/dev/null \
-                | head -n 15 | sed "s|^|$(basename "$(dirname "$f")")/[$(basename "$f")] |"
-            done | head -n 120
-            echo "----- failing port log tails -----"
+            echo "----- first error context (stdout) -----"
+            # Show the first real error plus the 25 lines around it, which is
+            # where CMake states the failing command and its log path.
+            grep -nEi "CMake Error|error:|BUILD_FAILED|failed with|Unsupported nasm|No such file|LNK[0-9]+|LNK[0-9]{4}" "$LOG" \
+              | head -n 40 || true
+            echo "----- tail of install output (last 60) -----"
+            tail -n 60 "$LOG" || true
+            echo "----- per-port tails -----"
             for p in aom ffmpeg libvpx opus libyuv libjpeg-turbo; do
               d="${VCPKG_ROOT}/buildtrees/${p}"
               [ -d "$d" ] || continue
               echo "##### ${p} #####"
-              find "$d" -name "*.log" -type f 2>/dev/null | while read -r f; do
-                case "$(basename "$f")" in
-                  *CMakeCache*) continue ;;   # noise, skip
-                esac
-                echo "--- $f (last 40) ---"
-                tail -n 40 "$f"
-              done
+              find "$d" -maxdepth 1 -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null \
+                | grep -v CMakeCache | while read -r f; do
+                    echo "--- $(basename "$f") (last 30) ---"
+                    tail -n 30 "$f"
+                  done
             done
             echo "========================================"
             exit 1
