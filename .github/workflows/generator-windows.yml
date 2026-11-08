@@ -113,6 +113,19 @@ jobs:
             }
           # - { target: aarch64-pc-windows-msvc, os: windows-2022, arch: aarch64 }
     steps:
+      # The build checks out rustdesk/rustdesk into the workspace ROOT, which
+      # means this repository's own .github/actions/ is NOT present on disk.
+      # A local action reference (uses: ./...) therefore fails with
+      # "Can't find 'action.yml' ... under .github/actions/...".
+      # Fetch this repo into an isolated subdirectory first so the composite
+      # actions are available, without disturbing the later source checkout.
+      - name: Checkout rdgen actions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          path: .rdgen-actions
+
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@v6
         with:
@@ -131,7 +144,7 @@ jobs:
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $env:GITHUB_ENV
 
       - name: Report Status (5% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -154,7 +167,7 @@ jobs:
           submodules: recursive
 
       - name: Restore bridge files
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
@@ -256,7 +269,7 @@ jobs:
       # that succeeded; otherwise fall back to the action.
       - name: Pre-seed LLVM installer (GitHub Releases returns intermittent 504)
         id: llvm_seed
-        uses: ./.github/actions/robust-download
+        uses: ./.rdgen-actions/.github/actions/robust-download
         with:
           url: https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/LLVM-${{ env.LLVM_VERSION }}-win64.exe
           dest: C:\llvm-installer\LLVM-${{ env.LLVM_VERSION }}-win64.exe
@@ -283,7 +296,7 @@ jobs:
           version: ${{ env.LLVM_VERSION }}
 
       - name: Report Status (10% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -321,7 +334,7 @@ jobs:
           components: "rustfmt"
 
       - name: Report Status (15% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -333,7 +346,7 @@ jobs:
           prefix-key: ${{ matrix.job.os }}
         
       - name: Report Status (20% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -345,7 +358,7 @@ jobs:
       # probes failed). Pre-seeding the exe lets bootstrap reuse it instead of
       # downloading, and only costs one extra step.
       - name: Pre-seed vcpkg.exe (bootstrap download returns intermittent 504)
-        uses: ./.github/actions/robust-download
+        uses: ./.rdgen-actions/.github/actions/robust-download
         with:
           url: https://github.com/microsoft/vcpkg-tool/releases/download/2025-03-22/vcpkg.exe
           dest: C:\vcpkg\vcpkg.exe
@@ -555,7 +568,7 @@ jobs:
           sed -i '/administrator/d' res/manifest.xml
 
       - name: Report Status (25% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -573,7 +586,7 @@ jobs:
           cd ..
 
       - name: Report Status (50% complete, this step takes about 5 minutes, be patient.)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -650,14 +663,14 @@ jobs:
           fi
 
       - name: Download RustDeskTempTopMostWindow artifacts
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
           name: topmostwindow-artifacts
           path: "./rustdesk"
 
       - name: Report Status (70% complete, this step takes about 5 minutes, be patient.)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -730,7 +743,7 @@ jobs:
           sha256sum ../../SignOutput/rustdesk.msi
 
       - name: Report Status (85% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -791,7 +804,7 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        uses: ./.github/actions/upload-filebrowser
+        uses: ./.rdgen-actions/.github/actions/upload-filebrowser
         with:
           fb-url: ${{ secrets.FB_URL }}
           fb-user: ${{ secrets.FB_USER }}
@@ -802,7 +815,7 @@ jobs:
             ./SignOutput/${{ inputs.filename }}.msi
 
       - name: Report Status (Success)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -811,7 +824,7 @@ jobs:
 
       - name: Report failed status
         if: failure()
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -820,7 +833,7 @@ jobs:
 
       - name: Report cancelled status
         if: cancelled()
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}

@@ -114,6 +114,17 @@ jobs:
               suffix: "",
             }
     steps:
+      # The build checks out another repository into the workspace ROOT, so this
+      # repo's own .github/actions/ is absent and a local action reference
+      # (uses: ./.github/actions/...) fails with "Can't find 'action.yml'".
+      # Fetch this repo into an isolated subdirectory first.
+      - name: Checkout rdgen actions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          path: .rdgen-actions
+
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -143,7 +154,7 @@ jobs:
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $GITHUB_ENV
 
       - name: Report Status (5% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -228,7 +239,7 @@ jobs:
           doNotCache: false
 
       - name: Report Status (15% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -264,7 +275,7 @@ jobs:
         shell: bash
 
       - name: Restore bridge files
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
           name: bridge-artifact
           path: ./
@@ -418,7 +429,7 @@ jobs:
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
 
       - name: Report Status (35% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -466,13 +477,13 @@ jobs:
           esac
 
       - name: Upload Rustdesk library to Artifacts
-        uses: actions/upload-artifact@master
+        uses: actions/upload-artifact@v4
         with:
           name: librustdesk.so.${{ matrix.job.target }}
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
       - name: Report Status (45% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -548,7 +559,7 @@ jobs:
           popd
 
       - name: Report Status (75% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -585,7 +596,7 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        uses: ./.github/actions/upload-filebrowser
+        uses: ./.rdgen-actions/.github/actions/upload-filebrowser
         with:
           fb-url: ${{ secrets.FB_URL }}
           fb-user: ${{ secrets.FB_USER }}
@@ -595,7 +606,7 @@ jobs:
             ./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk
 
       - name: Report Status (Success)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -604,7 +615,7 @@ jobs:
 
       - name: Report failed status
         if: failure()
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -613,7 +624,7 @@ jobs:
 
       - name: Report cancelled status
         if: cancelled()
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}

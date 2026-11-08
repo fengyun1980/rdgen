@@ -90,10 +90,29 @@ runs:
               ok=0
             fi
             if [ "$ok" = "1" ] && [ -n "${EXPECT_MAGIC:-}" ]; then
-              magic=$(head -c2 "$DEST.part")
-              if [ "$magic" != "$EXPECT_MAGIC" ]; then
-                echo "  wrong magic ('$magic' != '$EXPECT_MAGIC'), discarding"
-                ok=0
+              # Compare the first two bytes WITHOUT relying on od/xxd, which are
+              # not uniformly present (Windows Git Bash lacks od, and command
+              # substitution on binary data can be mangled by newline
+              # translation). `cmp -n 2` compares raw bytes against a tiny
+              # reference file and is stable on Git Bash, Linux and macOS.
+              #
+              # Distinguish "checker unavailable" from "content mismatch": if the
+              # tool is missing we skip the check rather than discard a file the
+              # size check already accepted.
+              if command -v cmp >/dev/null 2>&1; then
+                ref="$DEST.part.magic"
+                printf '%s' "$EXPECT_MAGIC" > "$ref" 2>/dev/null
+                cmp -n 2 "$ref" "$DEST.part" >/dev/null 2>&1
+                rc=$?
+                rm -f "$ref"
+                if [ "$rc" -eq 1 ]; then
+                  echo "  magic mismatch (expected prefix '$EXPECT_MAGIC'), discarding"
+                  ok=0
+                elif [ "$rc" -ne 0 ]; then
+                  echo "  cmp reported error rc=$rc; skipping magic check"
+                fi
+              else
+                echo "  cmp not available; skipping magic check (size check passed)"
               fi
             fi
             if [ "$ok" = "1" ]; then

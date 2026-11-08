@@ -110,6 +110,17 @@ jobs:
             }
 
     steps:
+      # The build checks out another repository into the workspace ROOT, so this
+      # repo's own .github/actions/ is absent and a local action reference
+      # (uses: ./.github/actions/...) fails with "Can't find 'action.yml'".
+      # Fetch this repo into an isolated subdirectory first.
+      - name: Checkout rdgen actions
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ github.ref }}
+          path: .rdgen-actions
+
       - name: Export GitHub Actions cache environment variables
         uses: actions/github-script@v6
         with:
@@ -128,7 +139,7 @@ jobs:
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $env:GITHUB_ENV
 
       - name: Report Status (5% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -151,7 +162,7 @@ jobs:
             submodules: recursive
 
       - name: Restore bridge files
-        uses: actions/download-artifact@master
+        uses: actions/download-artifact@v4
         with:
               name: bridge-artifact
               path: ./
@@ -253,7 +264,7 @@ jobs:
           rm ./flutter/temp_dependency.txt
 
       - name: Report Status (10% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -475,7 +486,7 @@ jobs:
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
 
       - name: Report Status (15% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -488,7 +499,7 @@ jobs:
           prefix-key: ${{ matrix.job.os }}
 
       - name: Report Status (20% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -517,7 +528,7 @@ jobs:
           fi
 
       - name: Report Status (25% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -545,7 +556,7 @@ jobs:
       #     cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/
 
       - name: Report Status (50% complete, this step takes about 5 minutes, be patient.)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -573,7 +584,7 @@ jobs:
           fi
 
       - name: Report Status (70% complete, this step takes about 5 minutes, be patient.)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -622,7 +633,7 @@ jobs:
             "${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}&uuid=${{ fromJson(inputs.logolink).uuid }}"
 
       - name: Report Status (85% complete)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -759,7 +770,7 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        uses: ./.github/actions/upload-filebrowser
+        uses: ./.rdgen-actions/.github/actions/upload-filebrowser
         with:
           fb-url: ${{ secrets.FB_URL }}
           fb-user: ${{ secrets.FB_USER }}
@@ -769,7 +780,7 @@ jobs:
             ${{ github.workspace }}/${{ inputs.filename }}-${{ matrix.job.arch }}.dmg
 
       - name: Report Status (Success)
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -778,7 +789,7 @@ jobs:
 
       - name: Report failed status
         if: failure()
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}
@@ -787,7 +798,7 @@ jobs:
 
       - name: Report cancelled status
         if: cancelled()
-        uses: ./.github/actions/report-status
+        uses: ./.rdgen-actions/.github/actions/report-status
         with:
           status-url: ${{ env.STATUS_URL }}
           token: ${{ secrets.CALLBACK_TOKEN }}

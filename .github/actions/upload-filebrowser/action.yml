@@ -54,23 +54,37 @@ runs:
           exit 1
         fi
         DIR="${FB_DIR:-/Software/RustDesk}"
-        echo "$FILES" | while IFS= read -r f; do
+        # Read the file list via a here-string (no pipe) so the loop body runs in
+        # the current shell; with `echo | while` the whole loop is a subshell and
+        # its counters would be lost.
+        ok_count=0
+        fail_count=0
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          # tolerate leading/trailing whitespace from YAML block scalars
+          f=$(printf '%s' "$f" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//')
           [ -n "$f" ] || continue
           if [ ! -f "$f" ]; then
             echo "skip (missing): $f"
             continue
           fi
           NAME=$(basename "$f")
+          # --retry re-sends the WHOLE file, so keep it to one retry: with four
+          # ~40MB artifacts a 3x retry could burn 40+ minutes re-uploading.
+          # 300s is generous for a single artifact (observed ~1-2 min).
           code=$(curl -sS -o /tmp/fb_resp.txt -w '%{http_code}' -X POST \
             "$BASE/api/resources${DIR}%2F${NAME}?override=true" \
             -H "X-Auth: $TOKEN" \
             -H "X-Forwarded-For: 127.0.0.1" \
-            --retry 3 --retry-delay 2 --max-time 600 \
-            -F "file=@${f}")
+            --connect-timeout 15 --max-time 300 \
+            --retry 1 --retry-delay 5 \
+            -F "file=@${f}" 2>/dev/null || echo "000")
           echo "upload $NAME -> HTTP $code"
           cat /tmp/fb_resp.txt 2>/dev/null || true
           case "$code" in
-            200|201) ;;
-            *) echo "::warning::$NAME upload returned HTTP $code" ;;
+            200|201) ok_count=$((ok_count + 1)) ;;
+            *) fail_count=$((fail_count + 1))
+               echo "::warning::$NAME upload returned HTTP $code" ;;
           esac
-        done
+        done <<< "$FILES"
+        echo "mirror summary: $ok_count uploaded, $fail_count failed"
