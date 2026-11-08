@@ -373,41 +373,70 @@ jobs:
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
-          # Capture the FULL stdout/stderr of the install. vcpkg prints the
-          # CMake failure to stdout (not only into buildtrees/*.log), so the
-          # previous "grep the .log files" approach found nothing and only the
-          # CMakeCache dump -- which vcpkg prints on failure -- was visible.
-          set -o pipefail
+          # Capture FULL output. vcpkg prints CMake failures to stdout, and its
+          # per-port logs live in buildtrees/<port>/<triplet>-rel/ (a subdirectory),
+          # so the earlier "find -maxdepth 1" matched nothing and the real error
+          # never appeared.
+          #
+          # No `set -o pipefail` here: `... 2>&1 | tee` would make the pipeline
+          # report the exit status of tee, masking the real success of vcpkg.
           LOG=/tmp/vcpkg-install.log
-          if $VCPKG_ROOT/vcpkg install \
-               --triplet ${{ matrix.job.vcpkg-triplet }} \
-               --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee "$LOG"; then
-            echo "vcpkg install OK"
-          else
-            echo "============= BUILD FAILED ============="
-            echo "----- first error context (stdout) -----"
-            # Show the first real error plus the 25 lines around it, which is
-            # where CMake states the failing command and its log path.
-            grep -nEi "CMake Error|error:|BUILD_FAILED|failed with|Unsupported nasm|No such file|LNK[0-9]+|LNK[0-9]{4}" "$LOG" \
-              | head -n 40 || true
-            echo "----- tail of install output (last 60) -----"
-            tail -n 60 "$LOG" || true
-            echo "----- per-port tails -----"
+          $VCPKG_ROOT/vcpkg install \
+            --triplet ${{ matrix.job.vcpkg-triplet }} \
+            --x-install-root="$VCPKG_ROOT/installed" 2>&1 | tee "$LOG"
+          rc=${PIPESTATUS[0]}
+          if [ "$rc" -ne 0 ]; then
+            echo "============= BUILD FAILED (exit $rc) ============="
+            echo "----- error lines from install output -----"
+            grep -nEi "CMake Error|error C[0-9]+|error LNK|error MSB|BUILD_FAILED|failed with|Unsupported nasm|No space left|No such file" "$LOG" \
+              | head -n 50 || true
+            echo "----- per-port logs (recursive, CMakeCache excluded) -----"
             for p in aom ffmpeg libvpx opus libyuv libjpeg-turbo; do
               d="${VCPKG_ROOT}/buildtrees/${p}"
               [ -d "$d" ] || continue
               echo "##### ${p} #####"
-              find "$d" -maxdepth 1 -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null \
-                | grep -v CMakeCache | while read -r f; do
-                    echo "--- $(basename "$f") (last 30) ---"
-                    tail -n 30 "$f"
+              find "$d" -type f \( -name "*.log" -o -name "*.txt" \) 2>/dev/null \
+                | grep -vi CMakeCache | while read -r f; do
+                    echo "--- ${f#${VCPKG_ROOT}/buildtrees/} (last 40) ---"
+                    tail -n 40 "$f"
                   done
             done
-            echo "========================================"
+            echo "----- end -----"
+            # Persist everything for download: the workflow log gets truncated, so the
+            # operator would otherwise have to hand-copy thousands of lines.
+            # Tar the whole buildtrees subtree (minus the huge CMakeCache files)
+            # instead of `cp --parents`, whose behaviour differs on Git Bash.
+            mkdir -p "${GITHUB_WORKSPACE}/vcpkg-failure-logs"
+            cp "$LOG" "${GITHUB_WORKSPACE}/vcpkg-failure-logs/install.log" 2>/dev/null || true
+            if [ -d "${VCPKG_ROOT}/buildtrees" ]; then
+              tar -czf "${GITHUB_WORKSPACE}/vcpkg-failure-logs/buildtrees-logs.tgz" \
+                --exclude='CMakeCache.txt' \
+                --exclude='*.o' --exclude='*.obj' \
+                -C "${VCPKG_ROOT}" buildtrees 2>/dev/null \
+                || echo "::warning::could not archive buildtrees logs"
+            fi
+            # Also keep the small, most relevant plain-text logs directly.
+            for p in aom ffmpeg libvpx opus libyuv libjpeg-turbo; do
+              d="${VCPKG_ROOT}/buildtrees/${p}"
+              [ -d "$d" ] || continue
+              find "$d" -type f -name "*.log" ! -name "*CMakeCache*" -size -2M 2>/dev/null \
+                | while read -r f; do
+                    cp "$f" "${GITHUB_WORKSPACE}/vcpkg-failure-logs/${p}-$(basename "$f")" 2>/dev/null || true
+                  done
+            done
             exit 1
           fi
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
         shell: bash
+
+      - name: Upload vcpkg failure logs
+        if: failure()
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: vcpkg-failure-logs
+          path: vcpkg-failure-logs/
+          retention-days: 7
 
       - name: icon stuff
         if: ${{ inputs.iconlink != 'false' }}
