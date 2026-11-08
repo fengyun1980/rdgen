@@ -114,17 +114,6 @@ jobs:
               suffix: "",
             }
     steps:
-      # The build checks out another repository into the workspace ROOT, so this
-      # repo's own .github/actions/ is absent and a local action reference
-      # (uses: ./.github/actions/...) fails with "Can't find 'action.yml'".
-      # Fetch this repo into an isolated subdirectory first.
-      - name: Checkout rdgen actions
-        uses: actions/checkout@v4
-        with:
-          repository: ${{ github.repository }}
-          ref: ${{ github.ref }}
-          path: .rdgen-actions
-
       - name: Free Disk Space (Ubuntu)
         uses: jlumbroso/free-disk-space@main
         with:
@@ -154,12 +143,25 @@ jobs:
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $GITHUB_ENV
 
       - name: Report Status (5% complete)
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "5% complete"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="5% complete"
+          # inline JSON (no python): only " and \ need escaping here
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
 
       - name: Install dependencies
         run: |
@@ -239,12 +241,25 @@ jobs:
           doNotCache: false
 
       - name: Report Status (15% complete)
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "15% complete"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="15% complete"
+          # inline JSON (no python): only " and \ need escaping here
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
 
       - name: Install vcpkg dependencies
         run: |
@@ -429,12 +444,25 @@ jobs:
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
 
       - name: Report Status (35% complete)
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "35% complete"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="35% complete"
+          # inline JSON (no python): only " and \ need escaping here
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
 
       - name: replace flutter icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -483,12 +511,25 @@ jobs:
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
       - name: Report Status (45% complete)
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "45% complete"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="45% complete"
+          # inline JSON (no python): only " and \ need escaping here
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
 
       - name: icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -559,12 +600,25 @@ jobs:
           popd
 
       - name: Report Status (75% complete)
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "75% complete"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="75% complete"
+          # inline JSON (no python): only " and \ need escaping here
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
       
       - uses: r0adkll/sign-android-release@v1
         name: Sign app APK
@@ -596,37 +650,94 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        uses: ./.rdgen-actions/.github/actions/upload-filebrowser
-        with:
-          fb-url: ${{ secrets.FB_URL }}
-          fb-user: ${{ secrets.FB_USER }}
-          fb-pass: ${{ secrets.FB_PASS }}
-          fb-dir: ${{ vars.FB_DIR }}
-          files: |
-            ./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk
-
+        shell: bash
+        env:
+          FB_URL_S: ${{ secrets.FB_URL }}
+          FB_USER_S: ${{ secrets.FB_USER }}
+          FB_PASS_S: ${{ secrets.FB_PASS }}
+          FB_DIR_S: ${{ vars.FB_DIR }}
+        run: |
+          [ -n "${FB_URL_S:-}" ] || { echo "FB_URL not set, skip"; exit 0; }
+          BASE="${FB_URL_S%/}"
+          TOKEN=$(curl -fsS -X POST "$BASE/api/login" -H 'Content-Type: application/json' \
+            -d "{\"username\":\"$FB_USER_S\",\"password\":\"$FB_PASS_S\"}" \
+            | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
+          if [ -z "${TOKEN:-}" ]; then echo "::error::File Browser login failed"; exit 1; fi
+          DIR="${FB_DIR_S:-/Software/RustDesk}"
+          ok=0; bad=0
+          for f in \
+            "./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk" \
+          ; do
+            [ -f "$f" ] || { echo "skip (missing): $f"; continue; }
+            N=$(basename "$f")
+            c=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+              "$BASE/api/resources${DIR}%2F${N}?override=true" \
+              -H "X-Auth: $TOKEN" -H "X-Forwarded-For: 127.0.0.1" \
+              --connect-timeout 15 --max-time 300 --retry 1 --retry-delay 5 \
+              -F "file=@${f}" 2>/dev/null || echo 000)
+            echo "upload $N -> $c"
+            case "$c" in 200|201) ok=$((ok+1));; *) bad=$((bad+1)); echo "::warning::$N HTTP $c";; esac
+          done
+          echo "mirror summary: $ok uploaded, $bad failed"
       - name: Report Status (Success)
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "Success"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="Success"
+          # inline JSON (no python): only " and \ need escaping here
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
 
       - name: Report failed status
         if: failure()
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "Generation failed, try again"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="Generation failed, try again"
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
 
       - name: Report cancelled status
         if: cancelled()
-        uses: ./.rdgen-actions/.github/actions/report-status
-        with:
-          status-url: ${{ env.STATUS_URL }}
-          token: ${{ secrets.CALLBACK_TOKEN }}
-          uuid: ${{ inputs.uuid }}
-          status: "Generation cancelled, try again"
+        shell: bash
+        continue-on-error: true
+        env:
+          SU: ${{ env.STATUS_URL }}
+          TK: ${{ secrets.CALLBACK_TOKEN }}
+          ID: ${{ inputs.uuid }}
+        run: |
+          [ -n "${SU:-}" ] || { echo "no status url, skip"; exit 0; }
+          ST="Generation cancelled, try again"
+          ESC=$(printf '%s' "$ST" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          BODY=$(printf '{"uuid":"%s","status":"%s"}' "$ID" "$ESC")
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+            -H 'Content-Type: application/json' \
+            -H "Authorization: Bearer ${TK:-}" \
+            --connect-timeout 5 --max-time 8 --retry 1 --retry-delay 2 \
+            -d "$BODY" 2>/dev/null || echo 000)
+          echo "status->$code ($ST)"
+          [ "$code" = "200" ] || echo "::warning::status report HTTP $code"
