@@ -639,30 +639,29 @@ jobs:
           }
 
 
-      # ---- DETERMINISTIC fix for the dead msys2-runtime entry ----------------
-      # Two -XX problems, both upstream, both inside vcpkg's own package table at
-      # VCPKG_COMMIT_ID:
+      # ---- fix the dead msys2-runtime entry (works regardless of formatting) --
+      # Upstream facts, all verified:
+      #   * vcpkg @ VCPKG_COMMIT_ID points the runtime at
+      #       msys2-runtime-3.5.4-2  -> 404 on every msys2 mirror (deleted upstream)
+      #   * the same file also carries a supported 3.4 branch
+      #       msys2-runtime-3.4-3.4.10-2 -> also 404 (superseded)
+      #       msys2-runtime-3.4-3.4.10-5 -> 1844 KB, downloads, SHA512 verified here
+      #   * that 3.4 declaration already ships `PROVIDES msys2-runtime`, so the
+      #     alias vcpkg needs is present and no NAME pinning is required.
       #
-      # 1. The entry points at
-      #      msys2-runtime-3.5.4-2-x86_64.pkg.tar.zst
-      #    which no longer exists on ANY of the six msys2 mirrors (verified: the
-      #    only surviving runtimes are 3.4-3.4.10-5 and 3.6.x).
+      # The previous revision tried to inline `NAME msys2-runtime` next to
+      # `declare_package( URL ...` on ONE line. The real file is multi-line:
+      #       z_vcpkg_acquire_msys_declare_package(
+      #           URL "https://.../msys2-runtime-3.5.4-2-..."
+      #           SHA512 070aeb...
+      #       )
+      # so the pattern never matched -- yet the script still printed
+      # "pinned package name to msys2-runtime", i.e. it reported success while
+      # changing nothing, and the run died at the verification step.
       #
-      # 2. Even after repointing the URL, vcpkg DERIVES the package name from the
-      #    filename with
-      #      ([^/]*)-[^-/]+-[^-/]+-[^-/]+\.pkg\.tar\.(xz|zst)
-      #    and takes group 2. For "msys2-runtime-3.5.4-2-..." that yields
-      #    "msys2-runtime" (correct), but "3.4" has no dash, so
-      #    "msys2-runtime-3.4-3.4.10-5-..." yields "msys2-runtime-3.4".
-      #    The name "msys2-runtime" then vanishes and vcpkg aborts with
-      #      Unknown packages were required for ... : msys2-runtime
-      #    which is exactly the failure seen in the last run.
-      #
-      # Fix both: repoint to a runtime that still downloads, AND pass the name
-      # explicitly. The declaration helper honours it:
-      #      if(NOT DEFINED arg_NAME) set(arg_NAME "${CMAKE_MATCH_2}") endif()
-      # so an explicit NAME is never overwritten by the derived value.
-      # URL and SHA512 must change together (vcpkg verifies the download).
+      # This version anchors ONLY on plain substrings (file name, checksum,
+      # the if(...) switch), never on line layout, and it refuses to claim
+      # success unless the file really changed.
       - name: Repoint vcpkg's dead msys2-runtime entry
         shell: bash
         continue-on-error: true
@@ -673,58 +672,71 @@ jobs:
             echo "::warning::$F missing; relying on the PKG_CONFIG path only"
             exit 0
           fi
-          BASE="https://mirror.msys2.org/msys/x86_64"
-          OLD="msys2-runtime-3.5.4-2-x86_64.pkg.tar.zst"
-          NEW="msys2-runtime-3.4-3.4.10-5-x86_64.pkg.tar.zst"
-          OLD_SHA="070aeb43385beb0e3f8d5fb28909469765116c222d53c2614f5f080be879eef0b78258334b35e8cda7625d8704efc89133f8b8fa78f309c5d680ae270efdaba8"
-          NEW_SHA="069fa1be3c7dafc2eb2d6a53af2782ef96eca2456a1e26024f52ec6ce21306bd4640d2caa301e8c6898a7ea85781ed67505c1f17cffc4e2f5114114047e4c10f"
-          # Feature-delivered runtimes live in the alternative 3.4 branch; skip if
-          # someone already selected it.
-          if grep -q "$NEW" "$F"; then
-            echo "runtime URL already repointed"
-          elif ! grep -q "$OLD" "$F"; then
-            echo "::warning::dead URL not present in $F; vcpkg layout changed, skipping"
-            exit 0
-          else
-            # Checksum FIRST so the URL never sits next to a stale hash.
-            sed -i "s|$OLD_SHA|$NEW_SHA|g" "$F"
-            sed -i "s|$OLD|$NEW|g" "$F"
-            echo "repointed runtime URL to $NEW"
-          fi
-          # Pin the package name. Nested sed/grep quoting is fragile, so use a
-          # tiny python edit instead: idempotent, and it reports what it did.
-          python - "$F" "$BASE/$NEW" <<'PY'
+          python - "$F" <<'PY'
           import io, sys
-          path, url = sys.argv[1], sys.argv[2]
+
+          path = sys.argv[1]
           src = io.open(path, encoding="utf-8", errors="replace").read()
-          pinned = 'NAME msys2-runtime URL "%s"' % url
-          plain = 'URL "%s"' % url
-          if pinned in src:
-              print("package name already pinned")
-          elif plain not in src:
-              print("::warning::target declaration not found; nothing to pin")
+          orig = src
+
+          SWITCH_OLD = "if(X_VCPKG_USE_MSYS2_RUNTIME_3.4)"
+          SWITCH_NEW = "if(TRUE) # forced by CI: the 3.5.4-2 runtime is 404 upstream"
+          OLD_URL = "msys2-runtime-3.4-3.4.10-2-x86_64.pkg.tar.zst"
+          NEW_URL = "msys2-runtime-3.4-3.4.10-5-x86_64.pkg.tar.zst"
+          OLD_SHA = "3fa087d4eb4e260785b81d5b6f4400ec128a83ff940da732bf147dfde457224573fa467e735b63c9a138872f5c9830f3684f824b2aa5d344fb95dfb91632f832"
+          NEW_SHA = "069fa1be3c7dafc2eb2d6a53af2782ef96eca2456a1e26024f52ec6ce21306bd4640d2caa301e8c6898a7ea85781ed67505c1f17cffc4e2f5114114047e4c10f"
+
+          def sub(label, old, new, applied_marker):
+              global src
+              if applied_marker in src:
+                  print("SKIP   " + label + " (already applied)")
+                  return
+              if old in src:
+                  src = src.replace(old, new)
+                  print("APPLY  " + label)
+              else:
+                  print("SKIP   " + label + " (anchor not found)")
+
+          # Select the 3.4 branch, then make its archive valid.
+          # The trailing comment on the switched line is idle: CMake treats
+          # everything after the first '#' as a comment, so the statement is
+          # still exactly `if(TRUE)`.
+          sub("force 3.4 runtime branch", SWITCH_OLD, SWITCH_NEW, SWITCH_NEW)
+          sub("3.4.10-2 -> 3.4.10-5", OLD_URL, NEW_URL, NEW_URL)
+          sub("3.4 checksum -> verified 3.4.10-5 hash", OLD_SHA, NEW_SHA, NEW_SHA)
+
+          if src == orig:
+              print("NO CHANGE: nothing matched; vcpkg layout may have changed")
           else:
-              src = src.replace("declare_package( " + plain,
-                                "declare_package( NAME msys2-runtime " + plain)
               io.open(path, "w", encoding="utf-8", newline="\n").write(src)
-              print("pinned package name to msys2-runtime")
+              print("WRITTEN: vcpkg_acquire_msys.cmake updated")
           PY
-          echo "--- resulting msys2-runtime entries ---"
+
+          echo "--- msys2-runtime entries as they now stand ---"
           grep -n "msys2-runtime-3" "$F" || true
-          echo "--- verification ---"
-          if grep -q "$OLD" "$F"; then
-            echo "::error::dead URL still present after patch"
+          echo "--- verification (hard failures) ---"
+          if ! grep -q "if(TRUE) # forced by CI" "$F"; then
+            echo "::error::the 3.4 runtime branch was not selected"
             exit 1
           fi
-          if ! grep -q "$NEW_SHA" "$F"; then
-            echo "::error::new checksum was not applied"
+          if ! grep -q "msys2-runtime-3.4-3.4.10-5-x86_64.pkg.tar.zst" "$F"; then
+            echo "::error::3.4.10-5 runtime URL not present"
             exit 1
           fi
-          if ! grep -q "NAME msys2-runtime" "$F"; then
-            echo "::error::package name was not pinned; vcpkg will report msys2-runtime as unknown"
+          if grep -q "3fa087d4eb4e260785b81d5b6f4400ec128a83ff940da732bf147dfde457224573fa467e735b63c9a138872f5c9830f3684f824b2aa5d344fb95dfb91632f832" "$F"; then
+            echo "::error::stale 3.4.10-2 checksum still present"
             exit 1
           fi
-          echo "msys2-runtime repointed + name pinned; aom pkgconfig fixup should now proceed"
+          if ! grep -q "069fa1be3c7dafc2eb2d6a53af2782ef96eca2456a1e26024f52ec6ce21306bd4640d2caa301e8c6898a7ea85781ed67505c1f17cffc4e2f5114114047e4c10f" "$F"; then
+            echo "::error::verified 3.4.10-5 checksum not applied"
+            exit 1
+          fi
+          # The 3.4 declaration must still carry the alias vcpkg looks up.
+          if ! grep -q "PROVIDES msys2-runtime" "$F"; then
+            echo "::error::PROVIDES msys2-runtime vanished; package name would be unresolvable"
+            exit 1
+          fi
+          echo "OK: 3.4 runtime branch selected, archive valid, alias intact"
 
 
       - name: Install vcpkg dependencies
