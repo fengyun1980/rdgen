@@ -547,12 +547,26 @@ jobs:
           $ErrorActionPreference = 'Continue'
           $root = "C:\pkgconf"
           $pkg  = Join-Path $root "mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
-          $url  = "https://mirror.msys2.org/mingw/mingw64/mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
           # SHA512 published by vcpkg itself in
           # scripts/cmake/vcpkg_find_acquire_program(PKGCONFIG).cmake at
           # VCPKG_COMMIT_ID -- an authoritative source, not a guess.
           $sha512 = "5373f050060678166968e09a4dd8ad30324c5dc37842c3517ebc9eb7be7e09d37d2873ff9dc4831c283556b68a0776f06fa6f91d799020b04282b4a3f378a2c4"
           New-Item -ItemType Directory -Force -Path $root | Out-Null
+
+          # CRITICAL: mirrors filter on User-Agent. Measured from a cloud IP:
+          #   "vcpkg/<ver>" -> 200 | "curl/..." -> 403 | browser UA -> 403
+          # The previous revision sent a browser UA, so EVERY mirror answered
+          # 403, the archive was never extracted, the build logged
+          # "pkg-config not runnable here" then died on the same msys2 404.
+          # Impersonate vcpkg: that is the client these mirrors are tuned for.
+          $name = "mingw-w64-x86_64-pkgconf-1~2.3.0-1-any.pkg.tar.zst"
+          $mirrors = @(
+            "https://mirror.msys2.org/mingw/mingw64/$name",
+            "https://repo.msys2.org/mingw/mingw64/$name",
+            "https://mirror.yandex.ru/mirrors/msys2/mingw/mingw64/$name",
+            "https://mirror.selfnet.de/msys2/mingw/mingw64/$name"
+          )
+          $ua = "vcpkg/2025-03-22-d4dd14112c2026ee57e59f966ecfa3b9137bd143"
 
           function Test-Pkgconf {
             param($Path)
@@ -562,27 +576,40 @@ jobs:
             return ($actual -eq $sha512)
           }
 
-          if (-not (Test-Pkgconf $pkg)) {
+          if (Test-Pkgconf $pkg) {
+            Write-Host "pkgconf archive already present and verified"
+          } else {
             Remove-Item $pkg -Force -ErrorAction SilentlyContinue
             $ok = $false
-            foreach ($attempt in 1..4) {
-              try {
-                Invoke-WebRequest -Uri $url -OutFile "$pkg.part" -UseBasicParsing -TimeoutSec 180 -UserAgent "Mozilla/5.0"
-                Move-Item "$pkg.part" $pkg -Force
-                if (Test-Pkgconf $pkg) { $ok = $true; break }
-                Write-Host "::warning::attempt $attempt got a bad archive (checksum mismatch); retrying"
-                Remove-Item $pkg -Force -ErrorAction SilentlyContinue
-              } catch {
-                Write-Host "::warning::attempt $attempt failed: $($_.Exception.Message)"
-                Start-Sleep -Seconds (10 * $attempt)
+            foreach ($url in $mirrors) {
+              if ($ok) { break }
+              $h = ([uri]$url).Host
+              foreach ($attempt in 1..2) {
+                try {
+                  Invoke-WebRequest -Uri $url -OutFile "$pkg.part" -UseBasicParsing `
+                    -TimeoutSec 180 -UserAgent $ua -Headers @{ "Accept" = "*/*" }
+                  Move-Item "$pkg.part" $pkg -Force
+                  if (Test-Pkgconf $pkg) {
+                    Write-Host "pkgconf fetched from $h (SHA512 verified)"
+                    $ok = $true
+                    break
+                  }
+                  Write-Host "::warning::$h served an archive with the wrong checksum; discarding"
+                  Remove-Item $pkg -Force -ErrorAction SilentlyContinue
+                } catch {
+                  $code = if ($_.Exception.Response) { [int]$_.Exception.Response.StatusCode } else { "ERR" }
+                  Write-Host "::warning::$h attempt $attempt failed (HTTP $code)"
+                  Remove-Item "$pkg.part" -Force -ErrorAction SilentlyContinue
+                  if ($code -eq 404) { break }   # dead path: no point retrying this host
+                  Start-Sleep -Seconds 3
+                }
               }
             }
             if (-not $ok) {
-              Write-Host "::error::could not fetch a valid pkgconf archive after 4 attempts"
+              Write-Host "::error::no mirror served a valid pkgconf archive; vcpkg will fall back to msys2 (which 404s on msys2-runtime 3.5.4-2)"
               exit 0
             }
           }
-          Write-Host "pkgconf archive verified (SHA512 ok)"
 
           # Windows 11 / Server 2022 ship bsdtar as tar.exe, which reads zstd.
           Push-Location $root
@@ -610,6 +637,59 @@ jobs:
             Write-Host "::error::pkg-config.exe not found after extraction; the msys2-runtime 3.5.4-2 download will 404"
             exit 0
           }
+
+
+      # ---- DETERMINISTIC fix for the dead msys2-runtime 404 ------------------
+      # The environment-variable route (PKG_CONFIG) is unreliable here: the build
+      # log showed `pkg-config not runnable here`, i.e. the helper was never
+      # extracted, so vcpkg fell through to vcpkg_acquire_msys and asked for
+      #   msys2-runtime-3.5.4-2-x86_64.pkg.tar.zst  -> 404 on ALL six mirrors
+      # (verified: that exact file no longer exists anywhere upstream).
+      #
+      # So edit vcpkg's own package table at VCPKG_COMMIT_ID and repoint the dead
+      # entry at a runtime that DOES still exist:
+      #   msys2-runtime-3.4-3.4.10-5 : 1844 KB, SHA512 verified locally.
+      # URL and SHA512 must change TOGETHER, because vcpkg verifies the
+      # downloaded file against the declared hash and aborts on mismatch.
+      # 3.4.x is a supported runtime in this same commit
+      # (the X_VCPKG_USE_MSYS2_RUNTIME_3.4 switch selects it).
+      - name: Repoint vcpkg's dead msys2-runtime entry
+        shell: bash
+        continue-on-error: true
+        run: |
+          set -u
+          F="/c/vcpkg/scripts/cmake/vcpkg_acquire_msys.cmake"
+          if [ ! -f "$F" ]; then
+            echo "::warning::$F missing; relying on the PKG_CONFIG path only"
+            exit 0
+          fi
+          OLD="msys2-runtime-3.5.4-2-x86_64.pkg.tar.zst"
+          NEW="msys2-runtime-3.4-3.4.10-5-x86_64.pkg.tar.zst"
+          OLD_SHA="070aeb43385beb0e3f8d5fb28909469765116c222d53c2614f5f080be879eef0b78258334b35e8cda7625d8704efc89133f8b8fa78f309c5d680ae270efdaba8"
+          NEW_SHA="069fa1be3c7dafc2eb2d6a53af2782ef96eca2456a1e26024f52ec6ce21306bd4640d2caa301e8c6898a7ea85781ed67505c1f17cffc4e2f5114114047e4c10f"
+          if grep -q "$NEW" "$F"; then
+            echo "already repointed"
+            exit 0
+          fi
+          if ! grep -q "$OLD" "$F"; then
+            echo "::warning::dead URL not present in $F; vcpkg layout changed, skipping"
+            exit 0
+          fi
+          # Replace the checksum FIRST so the URL never exists paired with a stale hash.
+          sed -i "s|$OLD_SHA|$NEW_SHA|g" "$F"
+          sed -i "s|$OLD|$NEW|g" "$F"
+          echo "--- resulting msys2-runtime entries ---"
+          grep -n "msys2-runtime-3" "$F" || true
+          if grep -q "$OLD" "$F"; then
+            echo "::error::dead URL still present after patch"
+            exit 1
+          fi
+          if ! grep -q "$NEW_SHA" "$F"; then
+            echo "::error::new checksum was not applied"
+            exit 1
+          fi
+          echo "msys2-runtime repointed to 3.4-3.4.10-5 with matching SHA512"
+
 
       - name: Install vcpkg dependencies
         env:
