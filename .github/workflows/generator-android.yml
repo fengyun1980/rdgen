@@ -54,7 +54,6 @@ on:
         default: '{}'
         type: string
 
-
 env:
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
   RUST_VERSION: "1.75" # sciter failed on m1 with 1.78 because of https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
@@ -143,13 +142,13 @@ jobs:
         run: |
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $GITHUB_ENV
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (5% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "5% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "5% complete"
 
       - name: Install dependencies
         run: |
@@ -228,13 +227,13 @@ jobs:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (15% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "15% complete"
 
       - name: Install vcpkg dependencies
         run: |
@@ -418,13 +417,13 @@ jobs:
         run: | 
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (35% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "35% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "35% complete"
 
       - name: replace flutter icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -472,13 +471,13 @@ jobs:
           name: librustdesk.so.${{ matrix.job.target }}
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (45% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "45% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "45% complete"
 
       - name: icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -548,13 +547,13 @@ jobs:
           mv ../rustdesk-${{ env.VERSION }}-${{ matrix.job.arch }}${{ matrix.job.suffix }}.apk ./${{ inputs.filename }}-${{ matrix.job.arch }}.apk
           popd
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (75% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "75% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "75% complete"
       
       - uses: r0adkll/sign-android-release@v1
         name: Sign app APK
@@ -586,60 +585,37 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        shell: bash
-        env:
-          FB_URL: ${{ secrets.FB_URL }}
-          FB_USER: ${{ secrets.FB_USER }}
-          FB_PASS: ${{ secrets.FB_PASS }}
-          FB_DIR: ${{ vars.FB_DIR }}
-        run: |
-          set -u
-          if [ -z "${FB_URL:-}" ]; then echo "FB_URL not configured; skip mirror."; exit 0; fi
-          BASE="${FB_URL%/}"
-          TOKEN=$(curl -fsS -X POST "$BASE/api/login" \
-            -H 'Content-Type: application/json' \
-            -d "{\"username\":\"$FB_USER\",\"password\":\"$FB_PASS\"}" \
-            | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          if [ -z "${TOKEN:-}" ]; then
-            echo "::error::File Browser login failed (no token). Check FB_USER / FB_PASS."
-            exit 1
-          fi
-          DIR="${FB_DIR:-/Software/RustDesk}"
-          f="./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk"
-          if [ -f "$f" ]; then
-            NAME=$(basename "$f")
-            code=$(curl -sS -o /tmp/fb_resp.txt -w '%{http_code}' -X POST \
-              "$BASE/api/resources${DIR}%2F${NAME}?override=true" \
-              -H "X-Auth: $TOKEN" -H "X-Forwarded-For: 127.0.0.1" \
-              -F "file=@${f}")
-            echo "upload $NAME -> HTTP $code"; cat /tmp/fb_resp.txt 2>/dev/null || true
-            case "$code" in 200|201) ;; *) echo "::warning::$NAME upload returned HTTP $code";; esac
-          else
-            echo "skip (missing): $f"
-          fi
-
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/upload-filebrowser
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Success"}'
+          fb-url: ${{ secrets.FB_URL }}
+          fb-user: ${{ secrets.FB_USER }}
+          fb-pass: ${{ secrets.FB_PASS }}
+          fb-dir: ${{ vars.FB_DIR }}
+          files: |
+            ./signed-apk/${{ inputs.filename }}-${{ matrix.job.arch }}.apk
 
-      - name: failed
+      - name: Report Status (Success)
+        uses: ./.github/actions/report-status
+        with:
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Success"
+
+      - name: Report failed status
         if: failure()
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation failed, try again"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Generation failed, try again"
 
-      - name: failed
+      - name: Report cancelled status
         if: cancelled()
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation cancelled, try again"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Generation cancelled, try again"

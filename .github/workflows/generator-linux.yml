@@ -128,13 +128,13 @@ jobs:
         run: |
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $GITHUB_ENV
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (5% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "5% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "5% complete"
 
       - name: Maximize build space
         run: |
@@ -196,13 +196,13 @@ jobs:
           # only build cdylib
           sed -i  "s/\[\"cdylib\", \"staticlib\", \"rlib\"\]/\[\"cdylib\"\]/g" Cargo.toml
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (15% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "15% complete"
 
       - name: Restore bridge files
         if: matrix.job.arch == 'x86_64' || env.UPLOAD_ARTIFACT == 'true'
@@ -366,13 +366,13 @@ jobs:
           name: bridge-artifact
           path: ./
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (65% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "65% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "65% complete"
 
       - uses: rustdesk-org/run-on-arch-action@amd64-support
         name: Build rustdesk
@@ -615,74 +615,52 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        shell: bash
-        env:
-          FB_URL: ${{ secrets.FB_URL }}
-          FB_USER: ${{ secrets.FB_USER }}
-          FB_PASS: ${{ secrets.FB_PASS }}
-          FB_DIR: ${{ vars.FB_DIR }}
-        run: |
-          set -u
-          if [ -z "${FB_URL:-}" ]; then echo "FB_URL not configured; skip mirror."; exit 0; fi
-          BASE="${FB_URL%/}"
-          TOKEN=$(curl -fsS -X POST "$BASE/api/login" \
-            -H 'Content-Type: application/json' \
-            -d "{\"username\":\"$FB_USER\",\"password\":\"$FB_PASS\"}" \
-            | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          if [ -z "${TOKEN:-}" ]; then
-            echo "::error::File Browser login failed (no token). Check FB_USER / FB_PASS."
-            exit 1
-          fi
-          DIR="${FB_DIR:-/Software/RustDesk}"
-          ARCH="${{ matrix.job.arch }}"
-          for f in "./output/${{ inputs.filename }}-${ARCH}.deb" \
-                   "./output/${{ inputs.filename }}-${ARCH}.rpm" \
-                   "./output/${{ inputs.filename }}-suse-${ARCH}.rpm" \
-                   "./output/${{ inputs.filename }}-${ARCH}.pkg.tar.zst"; do
-            [ -f "$f" ] || { echo "skip (missing): $f"; continue; }
-            NAME=$(basename "$f")
-            code=$(curl -sS -o /tmp/fb_resp.txt -w '%{http_code}' -X POST \
-              "$BASE/api/resources${DIR}%2F${NAME}?override=true" \
-              -H "X-Auth: $TOKEN" -H "X-Forwarded-For: 127.0.0.1" \
-              -F "file=@${f}")
-            echo "upload $NAME -> HTTP $code"; cat /tmp/fb_resp.txt 2>/dev/null || true
-            case "$code" in 200|201) ;; *) echo "::warning::$NAME upload returned HTTP $code";; esac
-          done
-
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/upload-filebrowser
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Finished ${{ matrix.job.arch }}"}'
+          fb-url: ${{ secrets.FB_URL }}
+          fb-user: ${{ secrets.FB_USER }}
+          fb-pass: ${{ secrets.FB_PASS }}
+          fb-dir: ${{ vars.FB_DIR }}
+          files: |
+            ./output/${{ inputs.filename }}-${{ matrix.job.arch }}.deb
+            ./output/${{ inputs.filename }}-${{ matrix.job.arch }}.rpm
+            ./output/${{ inputs.filename }}-suse-${{ matrix.job.arch }}.rpm
+            ./output/${{ inputs.filename }}-${{ matrix.job.arch }}.pkg.tar.zst
 
-      - name: failed
+      - name: Report Status (Finished ${{ matrix.job.arch }})
+        uses: ./.github/actions/report-status
+        with:
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Finished ${{ matrix.job.arch }}"
+
+      - name: Report failed status
         if: failure()
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation failed, try again"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Generation failed, try again"
 
-      - name: failed
+      - name: Report cancelled status
         if: cancelled()
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation cancelled, try again"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Generation cancelled, try again"
 
   deploy:
     needs: build-rustdesk-linux
     runs-on: ubuntu-latest
     steps:
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (Success)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Success"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Success"

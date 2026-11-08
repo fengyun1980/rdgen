@@ -54,7 +54,6 @@ on:
         default: '{}'
         type: string
 
-
 env:
   SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
   RUST_VERSION: "1.75" # sciter failed on m1 with 1.78 because of https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
@@ -78,7 +77,6 @@ env:
   UPLOAD_ARTIFACT: 'true'
   SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
   STATUS_URL: "${{ secrets.GENURL }}/updategh"
-
 
 jobs:
   generate-bridge:
@@ -132,13 +130,13 @@ jobs:
         run: |
           echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $env:GITHUB_ENV
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (5% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "5% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "5% complete"
 
       - name: Checkout source code
         if: ${{ env.VERSION != 'master' }}
@@ -251,19 +249,46 @@ jobs:
           Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
           git apply removeSetupServerTip.diff
 
+      # GitHub Releases returned 504 six times in a row for this file. The stock
+      # installer (directory= is its INSTALL TARGET, not a local package dir;
+      # url= overrides the download source) retries only twice and then aborts.
+      # Pre-seed the installer with backoff, then run it silently ourselves when
+      # that succeeded; otherwise fall back to the action.
+      - name: Pre-seed LLVM installer (GitHub Releases returns intermittent 504)
+        id: llvm_seed
+        uses: ./.github/actions/robust-download
+        with:
+          url: https://github.com/llvm/llvm-project/releases/download/llvmorg-${{ env.LLVM_VERSION }}/LLVM-${{ env.LLVM_VERSION }}-win64.exe
+          dest: C:\llvm-installer\LLVM-${{ env.LLVM_VERSION }}-win64.exe
+          min-bytes: '104857600'
+          attempts: '10'
+          expect-magic: MZ
+          fail-on-error: 'false'
 
-      - name: Install LLVM and Clang
+      - name: Install LLVM from pre-seeded installer
+        if: ${{ steps.llvm_seed.outputs.downloaded == 'true' }}
+        shell: pwsh
+        run: |
+          $exe = "C:\llvm-installer\LLVM-${{ env.LLVM_VERSION }}-win64.exe"
+          Write-Host "Installing from $exe"
+          # Silent install (the upstream distribution is an NSIS installer).
+          Start-Process -FilePath $exe -ArgumentList '/S','/D=C:\Program Files\LLVM' -Wait
+          "C:\Program Files\LLVM\bin" | Out-File -FilePath $env:GITHUB_PATH -Append -Encoding utf8
+          & "C:\Program Files\LLVM\bin\clang.exe" --version
+
+      - name: Install LLVM and Clang (fallback)
+        if: ${{ steps.llvm_seed.outputs.downloaded != 'true' }}
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (10% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "10% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "10% complete"
 
       - name: Install flutter
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
@@ -295,25 +320,38 @@ jobs:
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (15% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "15% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "15% complete"
 
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
         
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (20% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "20% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "20% complete"
+
+      # run-vcpkg clones the repo then runs bootstrap-vcpkg.bat, which fetches
+      # vcpkg.exe from GitHub Releases. That download hit 504 repeatedly (2 of 4
+      # probes failed). Pre-seeding the exe lets bootstrap reuse it instead of
+      # downloading, and only costs one extra step.
+      - name: Pre-seed vcpkg.exe (bootstrap download returns intermittent 504)
+        uses: ./.github/actions/robust-download
+        with:
+          url: https://github.com/microsoft/vcpkg-tool/releases/download/2025-03-22/vcpkg.exe
+          dest: C:\vcpkg\vcpkg.exe
+          min-bytes: '1048576'
+          attempts: '10'
+          expect-magic: MZ
 
       - name: Setup vcpkg with Github Actions binary cache
         uses: lukka/run-vcpkg@v11
@@ -463,7 +501,6 @@ jobs:
           magick ./res/icon.png -resize 128x128 ./res/128x128.png
           magick ./res/128x128.png -resize 200% ./res/128x128@2x.png
 
-
       - name: ui.rs icon
         if: ${{ inputs.iconlink != 'false' }}
         continue-on-error: true
@@ -509,7 +546,6 @@ jobs:
         run: | 
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
 
-
       - name: run as admin
         continue-on-error: true
         if: ${{ fromJson(inputs.extras).runasadmin == 'true' }}
@@ -518,13 +554,13 @@ jobs:
           echo "SET_TARGET_PROPERTIES(\${BINARY_NAME} PROPERTIES LINK_FLAGS    \"/MANIFESTUAC:\\\"level='requireAdministrator' uiAccess='false'\\\" /SUBSYSTEM:WINDOWS\")" >> ./flutter/windows/runner/CMakeLists.txt
           sed -i '/administrator/d' res/manifest.xml
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (25% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "25% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "25% complete"
 
       - name: replace flutter icons
         if: ${{ inputs.iconlink != 'false' }}
@@ -536,13 +572,13 @@ jobs:
           flutter pub run flutter_launcher_icons
           cd ..
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (50% complete, this step takes about 5 minutes, be patient.)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "50% complete, this step takes about 5 minutes, be patient."}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "50% complete, this step takes about 5 minutes, be patient."
 
       - name: Build rustdesk
         run: |
@@ -597,7 +633,6 @@ jobs:
         run: |
           Invoke-WebRequest -Uri ${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}"&"uuid=${{ fromJson(inputs.logolink).uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
 
-
       - name: find Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
         # Runner.rc does not contain actual version, but Runner.res does
@@ -621,13 +656,13 @@ jobs:
           name: topmostwindow-artifacts
           path: "./rustdesk"
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (70% complete, this step takes about 5 minutes, be patient.)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "70% complete, this step takes about 5 minutes, be patient."}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "70% complete, this step takes about 5 minutes, be patient."
       
       - name: zip dlls
         continue-on-error: true
@@ -694,13 +729,13 @@ jobs:
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk.msi
           sha256sum ../../SignOutput/rustdesk.msi
 
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+      - name: Report Status (85% complete)
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "85% complete"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "85% complete"
 
       - name: zip exe and msi
         continue-on-error: true
@@ -756,58 +791,38 @@ jobs:
       - name: Upload artifacts to File Browser
         if: ${{ always() }}
         continue-on-error: true
-        shell: bash
-        env:
-          FB_URL: ${{ secrets.FB_URL }}
-          FB_USER: ${{ secrets.FB_USER }}
-          FB_PASS: ${{ secrets.FB_PASS }}
-          FB_DIR: ${{ vars.FB_DIR }}
-        run: |
-          set -u
-          if [ -z "${FB_URL:-}" ]; then echo "FB_URL not configured; skip mirror."; exit 0; fi
-          BASE="${FB_URL%/}"
-          TOKEN=$(curl -fsS -X POST "$BASE/api/login" \
-            -H 'Content-Type: application/json' \
-            -d "{\"username\":\"$FB_USER\",\"password\":\"$FB_PASS\"}" \
-            | sed -n 's/.*"token"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p')
-          if [ -z "${TOKEN:-}" ]; then
-            echo "::error::File Browser login failed (no token). Check FB_USER / FB_PASS."
-            exit 1
-          fi
-          DIR="${FB_DIR:-/Software/RustDesk}"
-          for f in "./SignOutput/${{ inputs.filename }}.exe" "./SignOutput/${{ inputs.filename }}.msi"; do
-            [ -f "$f" ] || { echo "skip (missing): $f"; continue; }
-            NAME=$(basename "$f")
-            code=$(curl -sS -o /tmp/fb_resp.txt -w '%{http_code}' -X POST \
-              "$BASE/api/resources${DIR}%2F${NAME}?override=true" \
-              -H "X-Auth: $TOKEN" -H "X-Forwarded-For: 127.0.0.1" \
-              -F "file=@${f}")
-            echo "upload $NAME -> HTTP $code"; cat /tmp/fb_resp.txt 2>/dev/null || true
-            case "$code" in 200|201) ;; *) echo "::warning::$NAME upload returned HTTP $code";; esac
-          done
-
-      - name: Report Status
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/upload-filebrowser
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Success"}'
+          fb-url: ${{ secrets.FB_URL }}
+          fb-user: ${{ secrets.FB_USER }}
+          fb-pass: ${{ secrets.FB_PASS }}
+          fb-dir: ${{ vars.FB_DIR }}
+          files: |
+            ./SignOutput/${{ inputs.filename }}.exe
+            ./SignOutput/${{ inputs.filename }}.msi
 
-      - name: failed
+      - name: Report Status (Success)
+        uses: ./.github/actions/report-status
+        with:
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Success"
+
+      - name: Report failed status
         if: failure()
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation failed, try again"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Generation failed, try again"
 
-      - name: failed
+      - name: Report cancelled status
         if: cancelled()
-        uses: fjogeleit/http-request-action@v1
+        uses: ./.github/actions/report-status
         with:
-          url: ${{ env.STATUS_URL }}
-          method: 'POST'
-          customHeaders: '{"Content-Type": "application/json", "Authorization": "Bearer ${{ secrets.CALLBACK_TOKEN }}"}'
-          data: '{"uuid": "${{ inputs.uuid }}", "status": "Generation cancelled, try again"}'
+          status-url: ${{ env.STATUS_URL }}
+          token: ${{ secrets.CALLBACK_TOKEN }}
+          uuid: ${{ inputs.uuid }}
+          status: "Generation cancelled, try again"
