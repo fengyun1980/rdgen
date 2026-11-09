@@ -1,454 +1,818 @@
 name: Custom macOS Client Generator
-run-name: Custom macOS Client Generator · ${{ inputs.appname }} (${{ fromJson(inputs.extras).version }})
-true:
+run-name: Custom macOS Client Generator
+on: 
   workflow_dispatch:
     inputs:
-      server:
-        description: Rendezvous Server
+      version:
+        description: 'version to buld'
         required: true
         default: ''
         type: string
-      key:
-        description: Public Key
+      zip_url:
+        description: 'url to zip of json'
         required: true
         default: ''
         type: string
-      apiServer:
-        description: API Server
-        required: true
-        default: ''
-        type: string
-      custom:
-        description: Custom JSON (base64)
-        required: true
-        default: ''
-        type: string
-      uuid:
-        description: uuid of request
-        required: true
-        default: ''
-        type: string
-      iconlink:
-        description: icon link
+      app_version:
+        description: 'custom app version string (overrides build version)'
         required: false
-        default: 'false'
+        default: ''
         type: string
-      logolink:
-        description: logo link
-        required: false
-        default: 'false'
-        type: string
-      appname:
-        description: app name
-        required: true
-        default: rustdesk
-        type: string
-      filename:
-        description: Filename
-        required: true
-        default: rustdesk
-        type: string
-      extras:
-        description: extra inputs in json
-        required: true
-        default: '{}'
-        type: string
-permissions:
-  contents: read
-concurrency:
-  group: rdgen-${{ inputs.uuid }}
-  cancel-in-progress: false
+
 env:
-  GENURL: ${{ secrets.GENURL }}
-  CALLBACK_TOKEN: ${{ secrets.CALLBACK_TOKEN }}
-  FB_URL: ${{ secrets.FB_URL }}
-  FB_USER: ${{ secrets.FB_USER }}
-  FB_PASS: ${{ secrets.FB_PASS }}
-  FB_DIR: ${{ vars.FB_DIR }}
-  API_SERVER: ${{ inputs.apiServer }}
+  SCITER_RUST_VERSION: "1.75" # https://github.com/rustdesk/rustdesk/discussions/7503, also 1.78 has ABI change which causes our sciter version not working, https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
+  RUST_VERSION: "1.75" # sciter failed on m1 with 1.78 because of https://blog.rust-lang.org/2024/03/30/i128-layout-update.html
+  MAC_RUST_VERSION: "1.81" 
+  CARGO_NDK_VERSION: "3.1.2"
+  SCITER_ARMV7_CMAKE_VERSION: "3.29.7"
+  SCITER_NASM_DEBVERSION: "2.14-1"
+  LLVM_VERSION: "15.0.6"
+  FLUTTER_VERSION: "3.24.5"
+  ANDROID_FLUTTER_VERSION: "3.24.5" # >= 3.16 is very slow on my android phone, but work well on most of others. We may switch to new flutter after changing to texture rendering (I believe it can solve my problem).
+  FLUTTER_RUST_BRIDGE_VERSION: "1.80.1"  # for arm64 linux because official Dart SDK does not work
+  FLUTTER_ELINUX_VERSION: "3.16.9"
+  TAG_NAME: "${{ inputs.upload-tag }}"
+  VCPKG_BINARY_SOURCES: "clear"
+  # vcpkg version: 2024.07.12
+  VCPKG_COMMIT_ID: "9e593bb18ea69cc5095e012465dcd675a822ed0d"
+  ARMV7_VCPKG_COMMIT_ID: "6f29f12e82a8293156836ad81cc9bf5af41fe836"
+  VERSION: "${{ inputs.version }}"
+  NDK_VERSION: "r28c"
+  #signing keys env variable checks
+  ANDROID_SIGNING_KEY: "${{ secrets.ANDROID_SIGNING_KEY }}"
+  MACOS_P12_BASE64: "${{ secrets.MACOS_P12_BASE64 }}"
+  UPLOAD_ARTIFACT: 'true'
+  SIGN_BASE_URL: "${{ secrets.SIGN_BASE_URL }}"
+
 jobs:
-  bridge:
-    name: Prepare shared bridge artifacts
+  setup:
+    uses: ./.github/workflows/fetch-encrypted-secrets.yml
+    with:
+      zip_url_json: ${{ inputs.zip_url }}
+
+  generate-bridge:
     uses: ./.github/workflows/bridge.yml
     with:
-      version: ${{ fromJson(inputs.extras).version }}
-  build:
-    name: Custom macOS Client Generator
-    runs-on: macos-latest
+      version: ${{ inputs.version }}
+
+  build-for-macos:
+    name: ${{ matrix.job.target }}
+    runs-on: ${{ matrix.job.os }}
+    needs: [generate-bridge, setup]
     strategy:
       fail-fast: false
       matrix:
         job:
-        - target: x86_64-apple-darwin
-          os: macos-13
-          extra-build-args: ''
-          arch: x86_64
-          vcpkg-triplet: x64-osx
-        - target: aarch64-apple-darwin
-          os: macos-latest
-          extra-build-args: --screencapturekit
-          arch: aarch64
-          vcpkg-triplet: arm64-osx
+          - {
+              target: x86_64-apple-darwin,
+              os: macos-15-intel, #macos-latest or macos-14 use M1 now, https://docs.github.com/en/actions/using-github-hosted-runners/about-github-hosted-runners/about-github-hosted-runners#:~:text=14%20GB-,macos%2Dlatest%20or%20macos%2D14,-The%20macos%2Dlatestlabel
+              extra-build-args: "",
+              arch: x86_64,
+              vcpkg-triplet: x64-osx,
+            }
+          - {
+              target: aarch64-apple-darwin,
+              os: macos-14,
+              # extra-build-args: "--disable-flutter-texture-render", # disable this for mac, because we see a lot of users reporting flickering both on arm and x64, and we can not confirm if texture rendering has better performance if htere is no vram, https://github.com/rustdesk/rustdesk/issues/6296
+              extra-build-args: "--screencapturekit",
+              arch: aarch64,
+              vcpkg-triplet: arm64-osx,
+            }
+    env:
+      STATUS_URL: "${{ secrets.GENURL }}/updategh"
+
     steps:
-    - name: Load rdgen action definitions
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ github.repository }}
-        ref: ${{ github.ref }}
-        path: .rdgen
-        sparse-checkout: .github/actions .github/patches
-        sparse-checkout-cone-mode: false
-    - name: Export GitHub Actions cache environment variables
-      uses: actions/github-script@v6
-      with:
-        script: 'core.exportVariable(''ACTIONS_CACHE_URL'', process.env.ACTIONS_CACHE_URL || '''');
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        
+      - uses: actions/download-artifact@v4
+        with:
+          name: encrypted-secrets-zip
 
-          core.exportVariable(''ACTIONS_RUNTIME_TOKEN'', process.env.ACTIONS_RUNTIME_TOKEN || '''');
+      - name: Load Secrets
+        uses: ./.github/actions/decrypt-secrets
+        with:
+          zip_password: ${{ secrets.ZIP_PASSWORD }}
 
-          '
-    - name: Set rdgen value
-      if: ${{ fromJson(inputs.extras).rdgen == 'true' }}
-      run: 'echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $env:GITHUB_ENV
+      - name: Finalize and Cleanup zip/json
+        if: always() # Run even if previous steps fail
+        continue-on-error: true
+        uses: fjogeleit/http-request-action@v1
+        with:
+          url: "${{ secrets.GENURL }}/cleanzip"
+          method: 'POST'
+          customHeaders: '{"Content-Type": "application/json"}'
+          data: '{"uuid": "${{ env.uuid }}"}'
 
-        '
-    - name: Set rdgen value
-      if: ${{ fromJson(inputs.extras).rdgen == 'false' }}
-      run: 'echo "STATUS_URL=${{ inputs.apiServer }}/api/updategh" >> $env:GITHUB_ENV
+      - name: Export GitHub Actions cache environment variables
+        uses: actions/github-script@v6
+        with:
+          script: |
+            core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
+            core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-        '
-    - name: Building · 5%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '5'
-        label: Building
-      continue-on-error: true
-    - name: Checkout source code
-      if: ${{ env.VERSION != 'master' }}
-      uses: actions/checkout@v4
-      with:
-        repository: rustdesk/rustdesk
-        ref: refs/tags/${{ env.VERSION }}
-        submodules: recursive
-    - name: Checkout source code
-      if: ${{ env.VERSION == 'master' }}
-      uses: actions/checkout@v4
-      with:
-        repository: rustdesk/rustdesk
-        submodules: recursive
-    - name: Restore bridge files
-      uses: actions/download-artifact@v4
-      with:
-        name: bridge-artifact
-        path: ./
-    - name: Install imagemagick and potrace and nasm and and
-      shell: bash
-      run: 'brew install imagemagick potrace nasm cmake gcc wget ninja
+      - name: Checkout source code
+        if: ${{ env.VERSION != 'master' }}
+        uses: actions/checkout@v4
+        with:
+            repository: rustdesk/rustdesk
+            ref: refs/tags/${{ env.VERSION }}
+            submodules: recursive
+  
+      - name: Checkout source code
+        if: ${{ env.VERSION == 'master' }}
+        uses: actions/checkout@v4
+        with:
+            repository: rustdesk/rustdesk
+            submodules: recursive
 
-        echo "$(brew --prefix imagemagick)/bin" >> $GITHUB_PATH
+      - name: Set custom app version
+        continue-on-error: true
+        if: ${{ inputs.app_version != '' }}
+        shell: bash
+        run: |
+          sed -i -e 's|^version = ".*"|version = "${{ inputs.app_version }}"|' ./Cargo.toml
+          sed -i '/name = "rustdesk"/ {n; s/version = ".*"/version = "${{ inputs.app_version }}"/}' ./Cargo.lock
+          grep '^version = ' ./Cargo.toml
 
-        '
-    - name: Update macOS Info.plist and settings
-      continue-on-error: false
-      shell: bash
-      run: "\n# MACSTUFF Backup the original files\ncp ./flutter/macos/Runner/Info.plist ./flutter/macos/Runner/Info.plist.bak\ncp ./flutter/macos/Runner/Configs/AppInfo.xcconfig ./flutter/macos/Runner/Configs/AppInfo.xcconfig.bak\n\n# MACSTUFF Update Info.plist\nsed -i '' -e 's|<key>CFBundleName</key>.*<string>.*</string>|<key>CFBundleName</key>\\n\\t<string>${{ inputs.appname }}</string>|' ./flutter/macos/Runner/Info.plist\nsed -i '' -e 's|<key>CFBundleDisplayName</key>.*<string>.*</string>|<key>CFBundleDisplayName</key>\\n\\t<string>${{ inputs.appname }}</string>|' ./flutter/macos/Runner/Info.plist\nsed -i '' -e 's|<key>CFBundleIdentifier</key>.*<string>.*</string>|<key>CFBundleIdentifier</key>\\n\\t<string>com.${{ inputs.appname }}.app</string>|' ./flutter/macos/Runner/Info.plist\n# sed -i '' '/<key>NSHumanReadableCopyright<\\/key>/{n;s/<string>.*<\\/string>/<string>Copyright 2025 ${{ inputs.appname }}. All rights reserved.<\\/string>/;}' ./flutter/macos/Runner/Info.plist\n\n# MACSTUFF Update AppInfo.xcconfig\nsed -i '' -e 's|PRODUCT_NAME = .*|PRODUCT_NAME = ${{ inputs.appname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig\nsed -i '' -e 's|PRODUCT_BUNDLE_IDENTIFIER = .*|PRODUCT_BUNDLE_IDENTIFIER = com.${{ inputs.appname }}.app|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig\nsed -i '' -e 's|Purslane Ltd.|${{ inputs.appname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig\n# Keep DEVELOPMENT_TEAM if it exists, don't blank it out\n\nsed -i -e 's|Purslane Ltd.|${{ inputs.appname }}|' ./Cargo.toml\nsed -i -e 's|Purslane Ltd|${{ inputs.appname }}|' ./libs/portable/Cargo.toml\n\n# Update Xcode project settings\nsed -i '' -e 's/PRODUCT_NAME = \"RustDesk\"/PRODUCT_NAME = \"${{ inputs.appname }}\"/' ./flutter/macos/Runner.xcodeproj/project.pbxproj\nsed -i '' -e 's/PRODUCT_BUNDLE_IDENTIFIER = \".*\"/PRODUCT_BUNDLE_IDENTIFIER = \"com.${{ inputs.appname }}.app\"/' ./flutter/macos/Runner.xcodeproj/project.pbxproj\n# Don't modify DEVELOPMENT_TEAM in project.pbxproj\n\n# Update CMake settings\nif [ -f \"./flutter/macos/CMakeLists.txt\" ]; then\n  sed -i '' -e 's/set(BINARY_NAME \".*\")/set(BINARY_NAME \"${{ inputs.appname }}\")/' ./flutter/macos/CMakeLists.txt\nfi\n\n# Update Podfile - keep the target as 'Runner'\n# sed -i '' -e 's/target '\"'\"'Runner'\"'\"' do/target '\"'\"'${{ inputs.appname }}'\"'\"' do/' ./flutter/macos/Podfile\nsed -i '' -e 's/target '\"'\"'Runner'\"'\"' do/target '\"'\"'Runner'\"'\"' do/' ./flutter/macos/Podfile\n\ncp ./src/lang/en.rs ./src/lang/en.rs.bak\ncp ./src/lang/nl.rs ./src/lang/nl.rs.bak\nfind ./src/lang -name \"*.rs\" -exec sed -i '' -e 's|RustDesk|${{ inputs.appname }}|' {} \\;\nsed -i '' -e 's|RustDesk|${{ inputs.appname }}|' ./src/lang/nl.rs\n \nsed -i '' -e 's|Homepage: https://rustdesk.com|Homepage: ${{ fromJson(inputs.extras).urlLink }}|' ./build.py\nsed -i '' -e \"s|launchUrl(Uri.parse('https://rustdesk.com'));|launchUrl(Uri.parse('${{ fromJson(inputs.extras).urlLink }}'));|\" ./flutter/lib/common.dart\nsed -i '' -e \"s|launchUrlString('https://rustdesk.com');|launchUrlString('${{ fromJson(inputs.extras).urlLink }}');|\" ./flutter/lib/desktop/pages/desktop_setting_page.dart\nsed -i '' -e \"s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ fromJson(inputs.extras).urlLink }}/privacy.html')|\" ./flutter/lib/desktop/pages/desktop_setting_page.dart\nsed -i '' -e \"s|const url = 'https://rustdesk.com/';|const url = '${{ fromJson(inputs.extras).urlLink }}';|\" ./flutter/lib/mobile/pages/settings_page.dart\nsed -i '' -e \"s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ fromJson(inputs.extras).urlLink }}/privacy.html')|\" ./flutter/lib/mobile/pages/settings_page.dart\nsed -i '' -e \"s|https://rustdesk.com/privacy.html|${{ fromJson(inputs.extras).urlLink }}/privacy.html|\" ./flutter/lib/desktop/pages/install_page.dart\n"
-    - name: change download link to custom
-      if: fromJson(inputs.extras).downloadLink != 'https://rustdesk.com/download'
-      continue-on-error: true
-      shell: bash
-      run: "sed -i -e 's|https://rustdesk.com/download|${{ fromJson(inputs.extras).downloadLink }}|' ./flutter/lib/desktop/pages/desktop_home_page.dart\nsed -i -e 's|https://rustdesk.com/download|${{ fromJson(inputs.extras).downloadLink }}|' ./flutter/lib/mobile/pages/connection_page.dart\nsed -i -e 's|https://rustdesk.com/download|${{ fromJson(inputs.extras).downloadLink }}|' ./src/ui/index.tis\n\n# Update slogan\n#sed -i '' '/<key>NSHumanReadableCopyright<\\/key>/{n;s/<string>.*<\\/string>/<string>Copyright 2025 ${{ inputs.appname }}. All rights reserved.<\\/string>/;}' ./flutter/macos/Runner/Info.plist\n\n# Update slogan - About in en.rs \nsed -i '' -e 's/(\"Slogan_tip\", \"Made with heart in this chaotic world!\")/(\"Slogan_tip\", \"Powered by ${{ inputs.appname }}\")/' ./src/lang/en.rs\nsed -i '' -e 's/(\"About RustDesk\", \"\")/(\"About RustDesk\", \"About ${{ inputs.appname }}\")/' ./src/lang/en.rs\n\n\n# Update slogan - About in nl.rs\nsed -i '' -e 's/(\"Slogan_tip\", \"Ontwikkeld met het hart voor deze chaotische wereld!\")/(\"Slogan_tip\", \"Powered by ${{ inputs.appname }}\")/' ./src/lang/nl.rs\nsed -i '' -e 's/(\"Your Desktop\", \"Uw Bureaublad\")/(\"Your Desktop\", \"Uw ${{ inputs.appname }}\")/' ./src/lang/nl.rs\nsed -i '' -e 's/(\"About RustDesk\", \"Over RustDesk\")/(\"About RustDesk\", \"Over ${{ inputs.appname }}\")/' ./src/lang/nl.rs\nsed -i '' -e 's/(\"About\", \"Over\")/(\"About\", \"Over ${{ inputs.appname }}\")/' ./src/lang/nl.rs\n\nsed -i -e 's|rs-ny.rustdesk.com|${{ inputs.server }}|' ./libs/hbb_common/src/config.rs\nsed -i -e 's|OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=|${{ inputs.key }}|' ./libs/hbb_common/src/config.rs\nsed -i -e 's|https://admin.rustdesk.com|${{ inputs.apiServer }}|' ./src/common.rs\n\nwget ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/.github/patches/allowCustom.diff\ngit apply allowCustom.diff\nwget ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/.github/patches/removeSetupServerTip.diff\ngit apply removeSetupServerTip.diff\n  \n# Update pubspec.yaml with proper YAML formatting\ncp ./flutter/pubspec.yaml ./flutter/pubspec.yaml.bak\necho \"  archive: ^3.6.1\" > ./flutter/temp_dependency.txt\nawk '/intl:/{print;system(\"cat ./flutter/temp_dependency.txt\");next}1' ./flutter/pubspec.yaml > ./flutter/pubspec.yaml.tmp\nmv ./flutter/pubspec.yaml.tmp ./flutter/pubspec.yaml\nrm ./flutter/temp_dependency.txt\n"
-    - name: Building · 10%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '10'
-        label: Building
-      continue-on-error: true
-    - name: Install flutter
-      uses: subosito/flutter-action@v2.12.0
-      with:
-        channel: stable
-        flutter-version: ${{ env.FLUTTER_VERSION }}
-        cache: true
-    - name: Patch flutter
-      continue-on-error: true
-      run: 'cp .rdgen/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
+      - name: Apply allow_custom_update patch
+        continue-on-error: true
+        if: ${{ env.update_public_key != '' }}
+        shell: bash
+        run: |
+          curl -sSL -o allow_custom_update.py https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/allow_custom_update.py
+          python3 allow_custom_update.py \
+            --rustdesk-root . \
+            --update-url "${{ env.downloadLink}}/api/version/latest" \
+            --ed25519-public-key "${{ env.update_public_key }}"
 
-        cd $(dirname $(dirname $(which flutter)))
+      - name: Install imagemagick and potrace and nasm and and
+        shell: bash
+        run: |
+          brew install imagemagick potrace nasm cmake gcc wget ninja
+          echo "$(brew --prefix imagemagick)/bin" >> $GITHUB_PATH
 
-        [[ "3.24.4" == 3.24.5 ]] && git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
+      - name: Update macOS Info.plist and settings
+        continue-on-error: false
+        shell: bash
+        run: |
+          # MACSTUFF Update Info.plist
+          sed -i '' -e 's|<key>CFBundleName</key>.*<string>.*</string>|<key>CFBundleName</key>\n\t<string>${{ env.appname }}</string>|' ./flutter/macos/Runner/Info.plist
+          sed -i '' -e 's|<key>CFBundleDisplayName</key>.*<string>.*</string>|<key>CFBundleDisplayName</key>\n\t<string>${{ env.appname }}</string>|' ./flutter/macos/Runner/Info.plist
+          sed -i '' -e 's|<key>CFBundleIdentifier</key>.*<string>.*</string>|<key>CFBundleIdentifier</key>\n\t<string>com.${{ env.appname }}.app</string>|' ./flutter/macos/Runner/Info.plist
+          
+          # MACSTUFF Update AppInfo.xcconfig
+          sed -i '' -e 's|PRODUCT_NAME = .*|PRODUCT_NAME = ${{ env.appname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
+          sed -i '' -e 's|PRODUCT_BUNDLE_IDENTIFIER = .*|PRODUCT_BUNDLE_IDENTIFIER = com.${{ env.appname }}.app|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
+          sed -i '' -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
+          sed -i '' -e 's|Purslane Ltd.|${{ env.compname }}|' ./flutter/macos/Runner/Configs/AppInfo.xcconfig
 
-        '
-    - name: Workaround for flutter issue
-      shell: bash
-      run: 'cd "$(dirname "$(which flutter)")"
+          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./Cargo.toml
+          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
+          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i -e 's|Purslane Tech Pte. Ltd.|${{ env.compname }}|' ./src/main.rs
+          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./Cargo.toml
+          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
+          sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i -e 's|Purslane Ltd|${{ env.compname }}|' ./src/main.rs
+          
+          # Update Xcode project settings
+          sed -i '' -e 's/PRODUCT_NAME = "RustDesk"/PRODUCT_NAME = "${{ env.appname }}"/' ./flutter/macos/Runner.xcodeproj/project.pbxproj
+          sed -i '' -e 's/PRODUCT_BUNDLE_IDENTIFIER = ".*"/PRODUCT_BUNDLE_IDENTIFIER = "com.${{ env.appname }}.app"/' ./flutter/macos/Runner.xcodeproj/project.pbxproj
 
-        # https://github.com/flutter/flutter/issues/1.3.43
+          # Update CMake settings
+          if [ -f "./flutter/macos/CMakeLists.txt" ]; then
+            sed -i '' -e 's/set(BINARY_NAME ".*")/set(BINARY_NAME "${{ env.appname }}")/' ./flutter/macos/CMakeLists.txt
+          fi
 
-        sed -i -e ''s/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g'' ../packages/flutter/lib/src/scheduler/binding.dart
+          # Update Podfile - keep the target as 'Runner'
+          sed -i '' -e 's/target '"'"'Runner'"'"' do/target '"'"'Runner'"'"' do/' ./flutter/macos/Podfile
 
-        grep -n ''_setFramesEnabledState(false);'' ../packages/flutter/lib/src/scheduler/binding.dart
+          find ./src/lang -name "*.rs" -exec sed -i '' -e 's|RustDesk|${{ env.appname }}|' {} \;
+          sed -i '' -e 's|RustDesk|${{ env.appname }}|' ./src/lang/nl.rs
+           
+          sed -i '' -e 's|https://rustdesk.com|${{ env.urlLink }}|' ./build.py
+          sed -i '' -e "s|launchUrl(Uri.parse('https://rustdesk.com'));|launchUrl(Uri.parse('${{ env.urlLink }}'));|" ./flutter/lib/common.dart
+          sed -i '' -e "s|launchUrlString('https://rustdesk.com');|launchUrlString('${{ env.urlLink }}');|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i '' -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ env.urlLink }}/privacy.html')|" ./flutter/lib/desktop/pages/desktop_setting_page.dart
+          sed -i '' -e "s|const url = 'https://rustdesk.com/';|const url = '${{ env.urlLink }}';|" ./flutter/lib/mobile/pages/settings_page.dart
+          sed -i '' -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ env.urlLink }}/privacy.html')|" ./flutter/lib/mobile/pages/settings_page.dart
+          sed -i '' -e "s|https://rustdesk.com/privacy.html|${{ env.urlLink }}/privacy.html|" ./flutter/lib/desktop/pages/install_page.dart
 
-        '
-    - name: Install Rust toolchain
-      uses: dtolnay/rust-toolchain@v1
-      with:
-        toolchain: ${{ env.MAC_RUST_VERSION }}
-        targets: ${{ matrix.job.target }}
-        components: rustfmt
-    - uses: Swatinem/rust-cache@v2
-      with:
-        prefix-key: ${{ matrix.job.os }}
-    - name: Magick stuff for macOS
-      if: ${{ inputs.iconlink != 'false' }}
-      continue-on-error: false
-      shell: bash
-      run: "# Create all necessary directories first\nmkdir -p ./res\nmkdir -p ./flutter/assets\nmkdir -p ./flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset\nmkdir -p ./macos/Runner/Assets.xcassets/AppIcon.appiconset\nmkdir -p ./rustdesk/data/flutter_assets/assets\n\n# Download icon using curl with additional SSL options\ncurl -k -L --tlsv1.2 --proto =https --ssl-reqd \\\n  -H \"User-Agent: Mozilla/5.0\" \\\n  \"${{ fromJson(inputs.iconlink).url }}/get_png?filename=${{ fromJson(inputs.iconlink).file }}&uuid=${{ fromJson(inputs.iconlink).uuid }}\" \\\n  -o ./res/icon.png || wget --no-check-certificate -O ./res/icon.png \"${{ fromJson(inputs.iconlink).url }}/get_png?filename=${{ fromJson(inputs.iconlink).file }}&uuid=${{ fromJson(inputs.iconlink).uuid }}\"\n  \n# Backup existing files (if they exist)\n[ -f \"./res/32x32.png\" ] && mv ./res/32x32.png ./res/32x32.png.bak\n[ -f \"./res/64x64.png\" ] && mv ./res/64x64.png ./res/64x64.png.bak\n[ -f \"./res/128x128.png\" ] && mv ./res/128x128.png ./res/128x128.png.bak\n[ -f \"./res/mac-icon.png\" ] && mv ./res/mac-icon.png ./res/mac-icon.png.bak\n[ -f \"./flutter/assets/icon.png\" ] && mv ./flutter/assets/icon.png ./flutter/assets/icon.png.bak\n[ -f \"./flutter/assets/icon.svg\" ] && mv ./flutter/assets/icon.svg ./flutter/assets/icon.svg.bak\n[ -f \"./rustdesk/data/flutter_assets/assets/icon.svg\" ] && mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak\n  \n# Create standard app icons\nmagick ./res/icon.png -resize 32x32 ./res/32x32.png\nmagick ./res/icon.png -resize 64x64 ./res/64x64.png\nmagick ./res/icon.png -resize 128x128 ./res/128x128.png\n\n# Copy icon to Flutter assets\ncp ./res/icon.png ./flutter/assets/icon.png\ncp ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.png\n\n# Convert PNG to SVG using potrace\nmagick ./res/icon.png -flatten ./temp_icon.pbm\npotrace --svg -o ./flutter/assets/icon.svg ./temp_icon.pbm\ncp ./flutter/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg\nrm ./temp_icon.pbm\n\n# Create macOS app icons\nmagick ./res/icon.png -resize 16x16 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png\"\nmagick ./res/icon.png -resize 32x32 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png\"\nmagick ./res/icon.png -resize 64x64 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_64.png\"\nmagick ./res/icon.png -resize 128x128 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png\"\nmagick ./res/icon.png -resize 256x256 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png\"\nmagick ./res/icon.png -resize 512x512 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png\"\nmagick ./res/icon.png -resize 1024x1024 \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png\"\n\n# Create macOS specific icons\nmagick ./res/icon.png -resize 128x128 ./res/mac-icon.png\n\n# Create dark mode tray icon (optimized for macOS menu bar)\nmagick ./res/icon.png -resize 22x22 -colorspace gray -alpha set -background none -channel A -evaluate set 100% ./res/mac-tray-dark-x2.png\n\n# Create light mode tray icon (optimized for macOS menu bar)\nmagick ./res/icon.png -resize 22x22 -negate -colorspace gray -alpha set -background none -channel A -evaluate set 100% ./res/mac-tray-light-x2.png\n\n# Create AppIcon.icns (macOS native icon format)\nmkdir -p ./iconset.iconset\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png\" \"./iconset.iconset/icon_16x16.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png\" \"./iconset.iconset/icon_16x16@2x.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png\" \"./iconset.iconset/icon_32x32.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_64.png\" \"./iconset.iconset/icon_32x32@2x.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png\" \"./iconset.iconset/icon_128x128.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png\"\
-        \ \"./iconset.iconset/icon_128x128@2x.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png\" \"./iconset.iconset/icon_256x256.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png\" \"./iconset.iconset/icon_256x256@2x.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png\" \"./iconset.iconset/icon_512x512.png\"\ncp \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png\" \"./iconset.iconset/icon_512x512@2x.png\"\niconutil -c icns ./iconset.iconset -o ./flutter/macos/Runner/AppIcon.icns\nrm -rf ./iconset.iconset\n\n# Create Contents.json for macOS app icon\necho '{\n  \"images\": [\n    {\"size\":\"16x16\",\"idiom\":\"mac\",\"filename\":\"app_icon_16.png\",\"scale\":\"1x\"},\n    {\"size\":\"16x16\",\"idiom\":\"mac\",\"filename\":\"app_icon_32.png\",\"scale\":\"2x\"},\n    {\"size\":\"32x32\",\"idiom\":\"mac\",\"filename\":\"app_icon_32.png\",\"scale\":\"1x\"},\n    {\"size\":\"32x32\",\"idiom\":\"mac\",\"filename\":\"app_icon_64.png\",\"scale\":\"2x\"},\n    {\"size\":\"128x128\",\"idiom\":\"mac\",\"filename\":\"app_icon_128.png\",\"scale\":\"1x\"},\n    {\"size\":\"128x128\",\"idiom\":\"mac\",\"filename\":\"app_icon_256.png\",\"scale\":\"2x\"},\n    {\"size\":\"256x256\",\"idiom\":\"mac\",\"filename\":\"app_icon_256.png\",\"scale\":\"1x\"},\n    {\"size\":\"256x256\",\"idiom\":\"mac\",\"filename\":\"app_icon_512.png\",\"scale\":\"2x\"},\n    {\"size\":\"512x512\",\"idiom\":\"mac\",\"filename\":\"app_icon_512.png\",\"scale\":\"1x\"},\n    {\"size\":\"512x512\",\"idiom\":\"mac\",\"filename\":\"app_icon_1024.png\",\"scale\":\"2x\"}\n  ],\n  \"info\": {\n    \"version\": 1,\n    \"author\": \"xcode\"\n  }\n}' > \"flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json\"\n\n# Copy icons and Contents.json to both locations\ncp -r flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/* macos/Runner/Assets.xcassets/AppIcon.appiconset/\n\n# Verify files exist and show their sizes\necho \"Verifying generated files:\"\nls -lh ./res/mac-tray-dark-x2.png\nls -lh ./res/mac-tray-light-x2.png\nls -lh ./res/mac-icon.png\necho \"Flutter macOS app icons:\"\nls -lh flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/\necho \"Flutter assets:\"\nls -lh flutter/assets/icon.*\necho \"RustDesk Flutter assets:\"\nls -lh rustdesk/data/flutter_assets/assets/\n"
-    - name: replace flutter icons
-      if: ${{ inputs.iconlink != 'false' }}
-      continue-on-error: false
-      shell: bash
-      run: 'cd ./flutter
+      - name: change download link to custom
+        if: env.downloadLink != 'https://rustdesk.com/download'
+        continue-on-error: true
+        shell: bash
+        run: |
+          sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./flutter/lib/desktop/pages/desktop_home_page.dart
+          sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./flutter/lib/mobile/pages/connection_page.dart
+          sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./src/ui/index.tis
+          sed -i -e 's|&download_url|"${{ env.downloadLink }}"|' ./src/updater.rs
+          sed -i -e 's|$downloadUrl/$downloadFile|${{ env.downloadLink }}|' ./flutter/lib/desktop/widgets/update_progress.dart
+          
+          # Update slogan - About in en.rs 
+          sed -i '' -e 's/("Slogan_tip", "Made with heart in this chaotic world!")/("Slogan_tip", "Powered by ${{ env.appname }}")/' ./src/lang/en.rs
+          sed -i '' -e 's/("About RustDesk", "")/("About RustDesk", "About ${{ env.appname }}")/' ./src/lang/en.rs
+          
 
-        # Create required directories and files
+          # Update slogan - About in nl.rs
+          sed -i '' -e 's/("Slogan_tip", "Ontwikkeld met het hart voor deze chaotische wereld!")/("Slogan_tip", "Powered by ${{ env.appname }}")/' ./src/lang/nl.rs
+          sed -i '' -e 's/("Your Desktop", "Uw Bureaublad")/("Your Desktop", "Uw ${{ env.appname }}")/' ./src/lang/nl.rs
+          sed -i '' -e 's/("About RustDesk", "Over RustDesk")/("About RustDesk", "Over ${{ env.appname }}")/' ./src/lang/nl.rs
+          sed -i '' -e 's/("About", "Over")/("About", "Over ${{ env.appname }}")/' ./src/lang/nl.rs
+            
+          # Update pubspec.yaml with proper YAML formatting
+          cp ./flutter/pubspec.yaml ./flutter/pubspec.yaml.bak
+          echo "  archive: ^3.6.1" > ./flutter/temp_dependency.txt
+          awk '/intl:/{print;system("cat ./flutter/temp_dependency.txt");next}1' ./flutter/pubspec.yaml > ./flutter/pubspec.yaml.tmp
+          mv ./flutter/pubspec.yaml.tmp ./flutter/pubspec.yaml
+          rm ./flutter/temp_dependency.txt 
 
-        mkdir -p web
+      - name: set server, serverPort, key, and apiserver
+        continue-on-error: true
+        shell: bash
+        env:
+          SERVER_DOMAIN: ${{ env.server }}
+          SERVER_PORT_INPUT: ${{ env.serverPort }}
+          SERVER_KEY: ${{ env.key }}
+          API_SERVER: ${{ env.apiServer }}
+        run: |
+          # Pass secrets via bash env vars to avoid quoting issues
+          if [ ! -f "./libs/hbb_common/src/config.rs" ]; then
+            echo "Error: config.rs not found!"
+            exit 1
+          fi
+          if [ ! -f "./src/common.rs" ]; then
+            echo "Error: common.rs not found!"
+            exit 1
+          fi
 
-        mkdir -p assets
+          # Port must be a number; views.py defaults it to 21116
+          if ! [[ "$SERVER_PORT_INPUT" =~ ^[0-9]+$ ]]; then
+            echo "Error: serverPort must be a number, got: '$SERVER_PORT_INPUT'"
+            exit 1
+          fi
 
-        echo ''{"name":"${{ inputs.appname }}","short_name":"${{ inputs.appname }}","start_url":"/","display":"standalone","background_color":"#ffffff","theme_color":"#ffffff","description":"A remote desktop software."}'' > web/manifest.json
+          # Derive the port block from the rendezvous port
+          # (defaults 21116/21117/21118/21119)
+          SERVER_PORT=$SERVER_PORT_INPUT
+          RELAY_PORT=$((SERVER_PORT + 1))
+          WS_RENDEZVOUS_PORT=$((RELAY_PORT + 1))
+          WS_RELAY_PORT=$((WS_RENDEZVOUS_PORT + 1))
 
-        echo ''<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${{ inputs.appname }}</title></head><body></body></html>'' > web/index.html
+          echo "Setting server: $SERVER_DOMAIN"
+          echo "Setting ports: $SERVER_PORT, $RELAY_PORT, $WS_RENDEZVOUS_PORT, $WS_RELAY_PORT"
 
+          sed -i -e "s|rs-ny.rustdesk.com|$SERVER_DOMAIN|" ./libs/hbb_common/src/config.rs
 
-        # Ensure the AppIcon.appiconset directory exists
+          # Match on numeric value so the step is independent of defaults
+          sed -i -e "s|pub const RENDEZVOUS_PORT: i32 = [0-9][0-9]*;|pub const RENDEZVOUS_PORT: i32 = $SERVER_PORT;|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|pub const RELAY_PORT: i32 = [0-9][0-9]*;|pub const RELAY_PORT: i32 = $RELAY_PORT;|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|pub const WS_RENDEZVOUS_PORT: i32 = [0-9][0-9]*;|pub const WS_RENDEZVOUS_PORT: i32 = $WS_RENDEZVOUS_PORT;|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|pub const WS_RELAY_PORT: i32 = [0-9][0-9]*;|pub const WS_RELAY_PORT: i32 = $WS_RELAY_PORT;|" ./libs/hbb_common/src/config.rs
 
-        mkdir -p macos/Runner/Assets.xcassets/AppIcon.appiconset
+          sed -i -e "s|OeVuKk5nlHiXp+APNn0Y3pC1Iwpwn44JGqrQCsWqmBw=|$SERVER_KEY|" ./libs/hbb_common/src/config.rs
+          sed -i -e "s|https://admin.rustdesk.com|$API_SERVER|" ./src/common.rs
 
+          echo "=== Verification ==="
+          grep -nE "RENDEZVOUS_PORT|RELAY_PORT|WS_" ./libs/hbb_common/src/config.rs
 
-        # Copy the processed icons to Flutter locations
+      - name: allow custom.txt
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 5
+          max_attempts: 3
+          retry_wait_seconds: 15
+          shell: bash
+          command: |
+            wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/allowCustom.py
+            python allowCustom.py
+            wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff
+            git apply removeSetupServerTip.diff
+            # sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
+          
+      - name: Install build runtime
+        run: |
+          brew install llvm create-dmg
+          # pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner
+          if command -v pkg-config &>/dev/null; then
+              echo "pkg-config is already installed"
+          else
+              brew install pkg-config
+          fi
 
-        cp ../res/mac-icon.png ./assets/icon.png
+      - name: Install NASM
+        run: |
+          # Install NASM 2.16.x from official release.
+          # Do NOT use `brew install nasm` which installs NASM 3.x.
+          # NASM 3.x is a complete rewrite with incompatible CLI options and removed features.
+          # aom and other multimedia libraries require NASM 2.x for x86/x86_64 assembly.
+          wget https://www.nasm.us/pub/nasm/releasebuilds/2.16.03/macosx/nasm-2.16.03-macosx.zip
+          unzip nasm-2.16.03-macosx.zip
+          sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
+          nasm --version
 
-        cp ../flutter/assets/icon.svg ./assets/icon.svg || true
+      - name: Install flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: "stable"
+          flutter-version: ${{ env.FLUTTER_VERSION }}
 
+      - name: Patch flutter
+        continue-on-error: true
+        run: |
+            cd $(dirname $(dirname $(which flutter)))
+            [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
+      
+      - name: Workaround for flutter issue
+        shell: bash
+        run: |
+          cd "$(dirname "$(which flutter)")"
+          # https://github.com/flutter/flutter/issues/133533
+          sed -i -e 's/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g' ../packages/flutter/lib/src/scheduler/binding.dart
+          grep -n '_setFramesEnabledState(false);' ../packages/flutter/lib/src/scheduler/binding.dart
+        
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@v1
+        with:
+            toolchain: ${{ env.MAC_RUST_VERSION }}
+            targets: ${{ matrix.job.target }}
+            components: "rustfmt"
+  
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ matrix.job.os }}
 
-        flutter pub upgrade win32
+      - name: Magick stuff for macOS
+        if: ${{ env.iconlink_url != 'false' }}
+        continue-on-error: false
+        shell: bash
+        run: |
+          # Create all necessary directories first
+          mkdir -p ./res
+          mkdir -p ./flutter/assets
+          mkdir -p ./flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset
+          mkdir -p ./macos/Runner/Assets.xcassets/AppIcon.appiconset
+          mkdir -p ./rustdesk/data/flutter_assets/assets
 
-        flutter pub get
+          # Download icon using curl with additional SSL options
+          curl -k -L --tlsv1.2 --proto =https --ssl-reqd \
+            -H "User-Agent: Mozilla/5.0" \
+            "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}" \
+            -o ./res/icon.png || wget --no-check-certificate -O ./res/icon.png "${{ env.iconlink_url }}/get_png?filename=${{ env.iconlink_file }}&uuid=${{ env.iconlink_uuid }}"
+            
+          # Backup existing files (if they exist)
+          [ -f "./res/32x32.png" ] && mv ./res/32x32.png ./res/32x32.png.bak
+          [ -f "./res/64x64.png" ] && mv ./res/64x64.png ./res/64x64.png.bak
+          [ -f "./res/128x128.png" ] && mv ./res/128x128.png ./res/128x128.png.bak
+          [ -f "./res/mac-icon.png" ] && mv ./res/mac-icon.png ./res/mac-icon.png.bak
+          [ -f "./flutter/assets/icon.png" ] && mv ./flutter/assets/icon.png ./flutter/assets/icon.png.bak
+          [ -f "./flutter/assets/icon.svg" ] && mv ./flutter/assets/icon.svg ./flutter/assets/icon.svg.bak
+          [ -f "./rustdesk/data/flutter_assets/assets/icon.svg" ] && mv ./rustdesk/data/flutter_assets/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg.bak
+            
+          # Create standard app icons
+          magick ./res/icon.png -resize 32x32 ./res/32x32.png
+          magick ./res/icon.png -resize 64x64 ./res/64x64.png
+          magick ./res/icon.png -resize 128x128 ./res/128x128.png
+          
+          # Copy icon to Flutter assets
+          cp ./res/icon.png ./flutter/assets/icon.png
+          cp ./res/icon.png ./rustdesk/data/flutter_assets/assets/icon.png
+          
+          # Convert PNG to SVG using potrace
+          magick ./res/icon.png -flatten ./temp_icon.pbm
+          potrace --svg -o ./flutter/assets/icon.svg ./temp_icon.pbm
+          cp ./flutter/assets/icon.svg ./rustdesk/data/flutter_assets/assets/icon.svg
+          rm ./temp_icon.pbm
+          
+          # Create macOS app icons
+          magick ./res/icon.png -resize 16x16 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png"
+          magick ./res/icon.png -resize 32x32 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png"
+          magick ./res/icon.png -resize 64x64 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_64.png"
+          magick ./res/icon.png -resize 128x128 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png"
+          magick ./res/icon.png -resize 256x256 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png"
+          magick ./res/icon.png -resize 512x512 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png"
+          magick ./res/icon.png -resize 1024x1024 "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png"
 
-        flutter pub run flutter_launcher_icons
+          # Create macOS specific icons
+          magick ./res/icon.png -resize 128x128 ./res/mac-icon.png
+          
+          # Create dark mode tray icon (optimized for macOS menu bar)
+          magick ./res/icon.png -resize 22x22 -colorspace gray -alpha set -background none -channel A -evaluate set 100% ./res/mac-tray-dark-x2.png
+          
+          # Create light mode tray icon (optimized for macOS menu bar)
+          magick ./res/icon.png -resize 22x22 -negate -colorspace gray -alpha set -background none -channel A -evaluate set 100% ./res/mac-tray-light-x2.png
 
-        cd ..
+          # Create AppIcon.icns (macOS native icon format)
+          mkdir -p ./iconset.iconset
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_16.png" "./iconset.iconset/icon_16x16.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png" "./iconset.iconset/icon_16x16@2x.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_32.png" "./iconset.iconset/icon_32x32.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_64.png" "./iconset.iconset/icon_32x32@2x.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_128.png" "./iconset.iconset/icon_128x128.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png" "./iconset.iconset/icon_128x128@2x.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_256.png" "./iconset.iconset/icon_256x256.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png" "./iconset.iconset/icon_256x256@2x.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_512.png" "./iconset.iconset/icon_512x512.png"
+          cp "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/app_icon_1024.png" "./iconset.iconset/icon_512x512@2x.png"
+          iconutil -c icns ./iconset.iconset -o ./flutter/macos/Runner/AppIcon.icns
+          rm -rf ./iconset.iconset
+          
+          # Create Contents.json for macOS app icon
+          echo '{
+            "images": [
+              {"size":"16x16","idiom":"mac","filename":"app_icon_16.png","scale":"1x"},
+              {"size":"16x16","idiom":"mac","filename":"app_icon_32.png","scale":"2x"},
+              {"size":"32x32","idiom":"mac","filename":"app_icon_32.png","scale":"1x"},
+              {"size":"32x32","idiom":"mac","filename":"app_icon_64.png","scale":"2x"},
+              {"size":"128x128","idiom":"mac","filename":"app_icon_128.png","scale":"1x"},
+              {"size":"128x128","idiom":"mac","filename":"app_icon_256.png","scale":"2x"},
+              {"size":"256x256","idiom":"mac","filename":"app_icon_256.png","scale":"1x"},
+              {"size":"256x256","idiom":"mac","filename":"app_icon_512.png","scale":"2x"},
+              {"size":"512x512","idiom":"mac","filename":"app_icon_512.png","scale":"1x"},
+              {"size":"512x512","idiom":"mac","filename":"app_icon_1024.png","scale":"2x"}
+            ],
+            "info": {
+              "version": 1,
+              "author": "xcode"
+            }
+          }' > "flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/Contents.json"
+          
+          # Copy icons and Contents.json to both locations
+          cp -r flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/* macos/Runner/Assets.xcassets/AppIcon.appiconset/
+          
+          # Verify files exist and show their sizes
+          echo "Verifying generated files:"
+          ls -lh ./res/mac-tray-dark-x2.png
+          ls -lh ./res/mac-tray-light-x2.png
+          ls -lh ./res/mac-icon.png
+          echo "Flutter macOS app icons:"
+          ls -lh flutter/macos/Runner/Assets.xcassets/AppIcon.appiconset/
+          echo "Flutter assets:"
+          ls -lh flutter/assets/icon.*
+          echo "RustDesk Flutter assets:"
+          ls -lh rustdesk/data/flutter_assets/assets/
 
-        '
-    - name: ui.rs
-      if: ${{ inputs.iconlink != 'false' }}
-      continue-on-error: true
-      shell: bash
-      run: "cp ./src/ui.rs ./src/ui.rs.bak\nif [ -f \"./res/icon.png\" ]; then\n  SEARCH_STR=\"iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAACXBIWXMAAEiuAABIrgHwmhA7AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAEx9JREFUeJztnXmYHMV5h9\"\n  b64=$(base64 < ./res/icon.png)\n  sed -i '' -e \"s~$SEARCH_STR.*\\\"~$b64\\\"~\" ./src/ui.rs\nfi\n"
-    - name: fix connection delay
-      continue-on-error: false
-      if: ${{ fromJson(inputs.extras).delayFix == 'true' }}
-      shell: bash
-      run: 'sed -i '''' -e ''/if !key.is_empty() && !token.is_empty() {/,/}/d'' ./src/client.rs
+      - name: replace flutter icons
+        if: ${{ env.iconlink_url != 'false' }}
+        continue-on-error: false
+        shell: bash
+        run: |
+          cd ./flutter
+          # Create required directories and files
+          mkdir -p web
+          mkdir -p assets
+          echo '{"name":"${{ env.appname }}","short_name":"${{ env.appname }}","start_url":"/","display":"standalone","background_color":"#ffffff","theme_color":"#ffffff","description":"A remote desktop software."}' > web/manifest.json
+          echo '<!DOCTYPE html><html><head><meta charset="UTF-8"><title>${{ env.appname }}</title></head><body></body></html>' > web/index.html
+          
+          # Ensure the AppIcon.appiconset directory exists
+          mkdir -p macos/Runner/Assets.xcassets/AppIcon.appiconset
+          
+          # Copy the processed icons to Flutter locations
+          cp ../res/mac-icon.png ./assets/icon.png
+          cp ../flutter/assets/icon.svg ./assets/icon.svg || true
+          
+          flutter pub upgrade win32
+          flutter pub get
+          flutter pub run flutter_launcher_icons
+          cd ..
+      
+      - name: ui.rs
+        if: ${{ env.iconlink_url != 'false' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          cp ./src/ui.rs ./src/ui.rs.bak
+          if [ -f "./res/icon.png" ]; then
+            SEARCH_STR="iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHLAAAACXBIWXMAAEiuAABIrgHwmhA7AAAAGXRFWHRTb2Z0d2FyZQB3d3cuaW5rc2NhcGUub3Jnm+48GgAAEx9JREFUeJztnXmYHMV5h9"
+            b64=$(base64 < ./res/icon.png)
+            sed -i '' -e "s~$SEARCH_STR.*\"~$b64\"~" ./src/ui.rs
+          fi
 
-        '
-    - name: add cycle monitors to toolbar
-      continue-on-error: true
-      if: fromJson(inputs.extras).cycleMonitor == 'true'
-      run: 'wget ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/.github/patches/cycle_monitor.diff
+      - name: fix connection delay
+        continue-on-error: false
+        if: ${{ env.delayFix == 'true' }}
+        shell: bash
+        run: |
+          # Precise fix: only extend the direct-connection condition with the
+          # key check, instead of globally replacing !key.is_empty() with
+          # false (which would also disable TCP encryption and UDP logic).
+          sed -i -e 's#if is_local || peer_nat_type == NatType::SYMMETRIC {#if is_local || peer_nat_type == NatType::SYMMETRIC || !key.is_empty() {#' ./src/client.rs
+          grep -n "key.is_empty()" ./src/client.rs || true
+  
+      - name: use X for offline display instead of orange circle
+        continue-on-error: true
+        if: env.xOffline == 'true'
+        run: |
+          wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/xoffline.diff
+          git apply xoffline.diff
 
-        git apply cycle_monitor.diff
+      - name: hide-cm
+        continue-on-error: true
+        if: env.hidecm == 'true'
+        run: |
+          wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/hidecm.diff
+          git apply hidecm.diff
 
-        '
-    - name: use X for offline display instead of orange circle
-      continue-on-error: true
-      if: fromJson(inputs.extras).xOffline == 'true'
-      run: 'wget ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/.github/patches/xoffline.diff
+      - name: removeNewVersionNotif
+        continue-on-error: true
+        if: env.removeNewVersionNotif == 'true'
+        run: | 
+          sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
+          #sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
-        git apply xoffline.diff
+      - name: Restore bridge files
+        uses: actions/download-artifact@master
+        with:
+          name: bridge-artifact
+          path: ./
 
-        '
-    - name: hide-cm
-      continue-on-error: true
-      if: fromJson(inputs.extras).hidecm == 'true'
-      run: 'wget ${{ github.server_url }}/${{ github.repository }}/raw/${{ github.ref_name }}/.github/patches/hidecm.diff
+      - name: Restore vcpkg installed cache
+        uses: actions/cache@v4
+        with:
+          path: ${{ github.workspace }}/installed
+          key: vcpkg-macos-${{ env.VCPKG_COMMIT_ID }}-${{ matrix.job.vcpkg-triplet }}
+          restore-keys: |
+            vcpkg-macos-${{ env.VCPKG_COMMIT_ID }}-
 
-        git apply hidecm.diff
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
+          doNotCache: false
 
-        '
-    - name: removeNewVersionNotif
-      continue-on-error: true
-      if: fromJson(inputs.extras).removeNewVersionNotif == 'true'
-      run: 'sed -i -e ''s|updateUrl.isNotEmpty|false|'' ./flutter/lib/desktop/pages/desktop_home_page.dart
+      - name: Install vcpkg dependencies
+        run: |
+          if ! $VCPKG_ROOT/vcpkg \
+            install \
+            --x-install-root="$VCPKG_ROOT/installed"; then
+            find "${VCPKG_ROOT}/" -name "*.log" | while read -r _1; do
+              echo "$_1:"
+              echo "======"
+              cat "$_1"
+              echo "======"
+              echo ""
+            done
+            exit 1
+          fi
+          head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
 
-        '
-    - name: Building · 15%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '15'
-        label: Building
-      continue-on-error: true
-    - uses: Swatinem/rust-cache@v2
-      with:
-        prefix-key: ${{ matrix.job.os }}
-    - name: Building · 20%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '20'
-        label: Building
-      continue-on-error: true
-    - name: Setup vcpkg with Github Actions binary cache
-      uses: lukka/run-vcpkg@v11
-      with:
-        vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
-        doNotCache: false
-    - name: Install vcpkg dependencies
-      run: "if ! $VCPKG_ROOT/vcpkg \\\n  install \\\n  --x-install-root=\"$VCPKG_ROOT/installed\"; then\n  find \"${VCPKG_ROOT}/\" -name \"*.log\" | while read -r _1; do\n    echo \"$_1:\"\n    echo \"======\"\n    cat \"$_1\"\n    echo \"======\"\n    echo \"\"\n  done\n  exit 1\nfi\n"
-    - name: Building · 25%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '25'
-        label: Building
-      continue-on-error: true
-    - name: Create MacOS directory structure
-      run: 'mkdir -p ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS
+      - name: Save vcpkg installed cache
+        uses: actions/cache/save@v4
+        continue-on-error: true
+        with:
+          path: ${{ github.workspace }}/installed
+          key: vcpkg-macos-${{ env.VCPKG_COMMIT_ID }}-${{ matrix.job.vcpkg-triplet }}
 
-        '
-    - name: Build rustdesk
-      run: "if [ \"${{ matrix.job.target }}\" = \"aarch64-apple-darwin\" ]; then\n  MIN_MACOS_VERSION=\"12.3\"\n  sed -i -e \"s/MACOSX_DEPLOYMENT_TARGET\\=[0-9]*.[0-9]*/MACOSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}/\" build.py\n  sed -i -e \"s/platform :osx, '.*'/platform :osx, '${MIN_MACOS_VERSION}'/\" flutter/macos/Podfile\n  sed -i -e \"s/osx_minimum_system_version = \\\"[0-9]*.[0-9]*\\\"/osx_minimum_system_version = \\\"${MIN_MACOS_VERSION}\\\"/\" Cargo.toml\n  sed -i -e \"s/MACOSX_DEPLOYMENT_TARGET = [0-9]*.[0-9]*;/MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION};/\" flutter/macos/Runner.xcodeproj/project.pbxproj\nfi\nsed -i -e \"s/RustDesk.app/\\\"${{ inputs.appname }}.app\\\"/\" build.py\n./build.py --flutter --hwcodec ${{ matrix.job.extra-build-args }}\n"
-    - name: Building · 50%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '50'
-        label: Building
-      continue-on-error: true
-    - name: Install rcodesign tool
-      if: env.MACOS_P12_BASE64 != null
-      shell: bash
-      run: 'pushd /tmp
+      - name: Create MacOS directory structure
+        run: |
+          mkdir -p ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS
 
-        wget https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.22.0/apple-codesign-0.22.0-macos-universal.tar.gz
+      - name: Build rustdesk
+        run: |
+          if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
+            MIN_MACOS_VERSION="12.3"
+            sed -i -e "s/MACOSX_DEPLOYMENT_TARGET\=[0-9]*.[0-9]*/MACOSX_DEPLOYMENT_TARGET=${MIN_MACOS_VERSION}/" build.py
+            sed -i -e "s/platform :osx, '.*'/platform :osx, '${MIN_MACOS_VERSION}'/" flutter/macos/Podfile
+            sed -i -e "s/osx_minimum_system_version = \"[0-9]*.[0-9]*\"/osx_minimum_system_version = \"${MIN_MACOS_VERSION}\"/" Cargo.toml
+            sed -i -e "s/MACOSX_DEPLOYMENT_TARGET = [0-9]*.[0-9]*;/MACOSX_DEPLOYMENT_TARGET = ${MIN_MACOS_VERSION};/" flutter/macos/Runner.xcodeproj/project.pbxproj
+          fi
+          sed -i -e "s/RustDesk.app/\"${{ env.appname }}.app\"/" build.py
+          ./build.py --flutter --hwcodec --unix-file-copy-paste ${{ matrix.job.extra-build-args }}
 
-        tar -zxvf apple-codesign-0.22.0-macos-universal.tar.gz
+      # - name: Copy service file
+      #   run: |
+      #     cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/
 
-        mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
+      - name: Embed custom config into the .app bundle
+        shell: bash
+        run: |
+          APP=$(find ./flutter/build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -n 1)
+          echo "App bundle: $APP"
+          echo -n '${{ env.custom }}' > "$APP/Contents/MacOS/custom_.txt"
+          ls -l "$APP/Contents/MacOS/custom_.txt"
+      
+      - name: Install rcodesign tool
+        if: env.MACOS_P12_BASE64 != null
+        shell: bash
+        run: |
+          pushd /tmp
+          wget https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F0.22.0/apple-codesign-0.22.0-macos-universal.tar.gz
+          tar -zxvf apple-codesign-0.22.0-macos-universal.tar.gz
+          mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
+          popd
 
-        popd
+      - name: Install build runtime
+        run: |
+          brew install llvm create-dmg nasm cmake gcc wget ninja
+          # pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner
+          if command -v pkg-config &>/dev/null; then
+              echo "pkg-config is already installed"
+          else
+              brew install pkg-config
+          fi
+  
+      - name: Show version information (Rust, cargo, Clang)
+        shell: bash
+        run: |
+          clang --version || true
+          rustup -V
+          rustup toolchain list
+          rustup default
+          cargo -V
+          rustc -V
+      
+      - name: icon svg handling
+        if: ${{ env.iconlink_url != 'false' }}
+        continue-on-error: false
+        shell: bash
+        run: |
+          ASSETS_DIR="build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/App.framework/Versions/Current/Resources/flutter_assets/assets"
+          mkdir -p "$ASSETS_DIR"
+          if [ -f "$ASSETS_DIR/icon.svg" ]; then
+            mv "$ASSETS_DIR/icon.svg" "$ASSETS_DIR/icon.svg.bak"
+          fi
+          # First convert PNG to PBM (bitmap)
+          magick convert ./res/icon.png ./temp_icon.pbm
+          # Then use potrace to convert to SVG
+          potrace --svg -o "$ASSETS_DIR/icon.svg" ./temp_icon.pbm
+          rm ./temp_icon.pbm
 
-        '
-    - name: Install build runtime
-      run: "brew install llvm create-dmg nasm cmake gcc wget ninja\n# pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner\nif command -v pkg-config &>/dev/null; then\n    echo \"pkg-config is already installed\"\nelse\n    brew install pkg-config\nfi\n"
-    - name: Building · 70%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '70'
-        label: Building
-      continue-on-error: true
-    - name: Show version information (Rust, cargo, Clang)
-      shell: bash
-      run: 'clang --version || true
+      - name: logo handling
+        if: ${{ env.logolink_url != 'false' }}
+        continue-on-error: false
+        shell: bash
+        run: |
+          ASSETS_DIR="build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/App.framework/Versions/Current/Resources/flutter_assets/assets"
+          mkdir -p "$ASSETS_DIR"
+          curl -k -L --tlsv1.2 --proto =https --ssl-reqd \
+            -H "User-Agent: Mozilla/5.0" \
+            "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}" \
+            -o "$ASSETS_DIR/logo.png" || \
+          wget --no-check-certificate \
+            -O "$ASSETS_DIR/logo.png" \
+            "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}"
 
-        rustup -V
+      - name: Sign macOS app bundle
+        if: env.MACOS_P12_BASE64 != ''
+        run: |
+            cd flutter/build/macos/Build/Products/Release
+            # Debug info
+            echo "Current directory contents:"
+            ls -la
+            
+            # Rename RustDesk.app to the custom app name first
+            if [ -d "RustDesk.app" ]; then
+              # First rename the app if it's still called RustDesk.app
+              mv "RustDesk.app" "${{ env.appname }}.app"
+              echo "Renamed RustDesk.app to ${{ env.appname }}.app"
+            fi
+            
+            echo "App bundle contents after rename:"
+            ls -la "${{ env.appname }}.app" || echo "App not found"
+            ls -la "${{ env.appname }}.app/Contents" || echo "Contents not found"
+            
+            # Decode the certificate
+            echo "${{ secrets.MACOS_P12_BASE64 }}" | base64 --decode > certificate.p12
+            
+            # Sign the app bundle and its contents
+            if [ -d "${{ env.appname }}.app/Contents/MacOS" ]; then
+              echo "Signing main executable..."
+              MAIN_EXECUTABLE="${{ env.appname }}.app/Contents/MacOS/${{ env.appname }}"
+              if [ -f "$MAIN_EXECUTABLE" ]; then
+                rcodesign sign --p12-file certificate.p12 --p12-password "${{ secrets.MACOS_P12_PASSWORD }}" \
+                  --code-signature-flags runtime "$MAIN_EXECUTABLE"
+              else
+                echo "Main executable not found at expected path: $MAIN_EXECUTABLE"
+                # Try to find the actual executable
+                echo "Available executables in MacOS directory:"
+                ls -la "${{ env.appname }}.app/Contents/MacOS/"
+                ACTUAL_EXECUTABLE=$(ls "${{ env.appname }}.app/Contents/MacOS/" | head -n 1)
+                if [ -n "$ACTUAL_EXECUTABLE" ]; then
+                  echo "Found executable: $ACTUAL_EXECUTABLE"
+                  rcodesign sign --p12-file certificate.p12 --p12-password "${{ secrets.MACOS_P12_PASSWORD }}" \
+                    --code-signature-flags runtime "${{ env.appname }}.app/Contents/MacOS/$ACTUAL_EXECUTABLE"
+                fi
+              fi
+              
+              echo "Signing frameworks..."
+              find "${{ env.appname }}.app/Contents/Frameworks" -type f -not -name ".*" -exec \
+                rcodesign sign --p12-file certificate.p12 --p12-password "${{ secrets.MACOS_P12_PASSWORD }}" \
+                --code-signature-flags runtime {} \;
+              
+              echo "Signing main bundle..."
+              rcodesign sign --p12-file certificate.p12 --p12-password "${{ secrets.MACOS_P12_PASSWORD }}" \
+                --code-signature-flags runtime "${{ env.appname }}.app"
+            else
+              echo "Error: Invalid app bundle structure"
+              exit 1
+            fi
+            
+            # Clean up
+            rm certificate.p12 
 
-        rustup toolchain list
+      - name: Ad-hoc Sign macOS app bundle (Fallback)
+        if: env.MACOS_P12_BASE64 == '' || env.MACOS_P12_BASE64 == null
+        shell: bash
+        run: |
+            cd flutter/build/macos/Build/Products/Release
+            
+            # Renombrar RustDesk.app al nombre de la marca blanca si aplica
+            if [ -d "RustDesk.app" ]; then
+              mv "RustDesk.app" "${{ env.appname }}.app"
+              echo "RustDesk.app renombrado a ${{ env.appname }}.app"
+            fi
+            
+            TARGET_APP="${{ env.appname }}.app"
+            
+            if [ -d "$TARGET_APP" ]; then
+              echo "Limpiando atributos extendidos..."
+              xattr -cr "$TARGET_APP" || true
+              
+              echo "Re-firmando $TARGET_APP de forma Ad-Hoc y recursiva..."
+              codesign --force --deep --sign - "$TARGET_APP"
+              echo "Firma Ad-Hoc completada con exito."
+            else
+              echo "Error: No se encontro la app bundle en $TARGET_APP para firmar."
+              exit 1
+            fi
 
-        rustup default
+      - name: Create DMG
+        run: |
+          cd /Users/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/flutter/build/macos/Build/Products/Release
+          # Print directory contents for debugging
+          echo "Directory contents:"
+          ls -la
+          # Find the actual .app bundle
+          if [ -d "RustDesk.app" ]; then
+            # First rename the app if it's still called RustDesk.app
+            mv "RustDesk.app" "${{ env.appname }}.app"
+          fi
+          if [ ! -d "${{ env.appname }}.app" ]; then
+            echo "Could not find .app bundle!"
+            exit 1
+          fi
+          echo "Creating DMG for ${{ env.appname }}.app"
+          create-dmg \
+            --volname "${{ env.appname }}" \
+            --window-pos 200 120 \
+            --window-size 800 400 \
+            --icon-size 100 \
+            --icon "${{ env.appname }}.app" 200 190 \
+            --hide-extension "${{ env.appname }}.app" \
+            --app-drop-link 600 185 \
+            "${{ env.appname }}-${{ matrix.job.arch }}.dmg" \
+            "${{ env.appname }}.app"
+          mv "${{ env.appname }}-${{ matrix.job.arch }}.dmg" $GITHUB_WORKSPACE/
+  
+      - name: Rename rustdesk
+        if: env.UPLOAD_ARTIFACT == 'true'
+        run: |
+          cd $GITHUB_WORKSPACE
+          echo "Directory contents:"
+          ls -la
+            
+          # Find the DMG file dynamically
+          DMG_FILE=$(find . -name "${{ env.appname }}-${{ matrix.job.arch }}.dmg")
+            
+          if [ -n "$DMG_FILE" ]; then
+            echo "Found DMG file: $DMG_FILE"
+            mv "$DMG_FILE" "${{ env.filename }}-${{ matrix.job.arch }}.dmg"
+            echo "Renamed to ${{ env.filename }}-${{ matrix.job.arch }}.dmg"
+          else
+            echo "No DMG file found matching the pattern"
+            exit 1
+          fi
 
-        cargo -V
+      - name: send file to rdgen server
+        if: ${{ env.rdgen == 'true' }}
+        shell: bash
+        run: |
+          curl -i -X POST \
+            -H "Content-Type: multipart/form-data" \
+            -H "Authorization: Bearer ${{ env.token }}" \
+            -F "file=@$GITHUB_WORKSPACE/${{ env.filename }}-${{ matrix.job.arch }}.dmg" \
+            -F "uuid=${{ env.uuid }}" \
+            "${{ secrets.GENURL }}/save_custom_client"
+        
 
-        rustc -V
+      - name: send file to api server
+        if: ${{ env.rdgen == 'false' }}
+        shell: bash
+        run: |
+          curl -i -X POST \
+            -H "Content-Type: multipart/form-data" \
+            -H "Authorization: Bearer ${{ env.token }}" \
+            -F "file=@$GITHUB_WORKSPACE/${{ env.filename }}-${{ matrix.job.arch }}.dmg" \
+            "${{ env.apiServer }}/api/save_custom_client"
 
-        '
-    - name: icon svg handling
-      if: ${{ inputs.iconlink != 'false' }}
-      continue-on-error: false
-      shell: bash
-      run: "ASSETS_DIR=\"build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/App.framework/Versions/Current/Resources/flutter_assets/assets\"\nmkdir -p \"$ASSETS_DIR\"\nif [ -f \"$ASSETS_DIR/icon.svg\" ]; then\n  mv \"$ASSETS_DIR/icon.svg\" \"$ASSETS_DIR/icon.svg.bak\"\nfi\n# First convert PNG to PBM (bitmap)\nmagick convert ./res/icon.png ./temp_icon.pbm\n# Then use potrace to convert to SVG\npotrace --svg -o \"$ASSETS_DIR/icon.svg\" ./temp_icon.pbm\nrm ./temp_icon.pbm\n"
-    - name: logo handling
-      if: ${{ inputs.logolink != 'false' }}
-      continue-on-error: false
-      shell: bash
-      run: "ASSETS_DIR=\"build/macos/Build/Products/Release/RustDesk.app/Contents/Frameworks/App.framework/Versions/Current/Resources/flutter_assets/assets\"\nmkdir -p \"$ASSETS_DIR\"\ncurl -k -L --tlsv1.2 --proto =https --ssl-reqd \\\n  -H \"User-Agent: Mozilla/5.0\" \\\n  \"${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}&uuid=${{ fromJson(inputs.logolink).uuid }}\" \\\n  -o \"$ASSETS_DIR/logo.png\" || \\\nwget --no-check-certificate \\\n  -O \"$ASSETS_DIR/logo.png\" \\\n  \"${{ fromJson(inputs.logolink).url }}/get_png?filename=${{ fromJson(inputs.logolink).file }}&uuid=${{ fromJson(inputs.logolink).uuid }}\"\n"
-    - name: Building · 85%
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: '85'
-        label: Building
-      continue-on-error: true
-    - name: Sign macOS app bundle
-      if: env.MACOS_P12_BASE64 != ''
-      run: "cd flutter/build/macos/Build/Products/Release\n# Debug info\necho \"Current directory contents:\"\nls -la\n\n# Rename RustDesk.app to the custom app name first\nif [ -d \"RustDesk.app\" ]; then\n  # First rename the app if it's still called RustDesk.app\n  mv \"RustDesk.app\" \"${{ inputs.appname }}.app\"\n  echo \"Renamed RustDesk.app to ${{ inputs.appname }}.app\"\nfi\n\necho \"App bundle contents after rename:\"\nls -la \"${{ inputs.appname }}.app\" || echo \"App not found\"\nls -la \"${{ inputs.appname }}.app/Contents\" || echo \"Contents not found\"\n\n# Decode the certificate\necho \"${{ secrets.MACOS_P12_BASE64 }}\" | base64 --decode > certificate.p12\n\n# Sign the app bundle and its contents\nif [ -d \"${{ inputs.appname }}.app/Contents/MacOS\" ]; then\n  echo \"Signing main executable...\"\n  MAIN_EXECUTABLE=\"${{ inputs.appname }}.app/Contents/MacOS/${{ inputs.appname }}\"\n  if [ -f \"$MAIN_EXECUTABLE\" ]; then\n    rcodesign sign --p12-file certificate.p12 --p12-password \"${{ secrets.MACOS_P12_PASSWORD }}\" \\\n      --code-signature-flags runtime \"$MAIN_EXECUTABLE\"\n  else\n    echo \"Main executable not found at expected path: $MAIN_EXECUTABLE\"\n    # Try to find the actual executable\n    echo \"Available executables in MacOS directory:\"\n    ls -la \"${{ inputs.appname }}.app/Contents/MacOS/\"\n    ACTUAL_EXECUTABLE=$(ls \"${{ inputs.appname }}.app/Contents/MacOS/\" | head -n 1)\n    if [ -n \"$ACTUAL_EXECUTABLE\" ]; then\n      echo \"Found executable: $ACTUAL_EXECUTABLE\"\n      rcodesign sign --p12-file certificate.p12 --p12-password \"${{ secrets.MACOS_P12_PASSWORD }}\" \\\n        --code-signature-flags runtime \"${{ inputs.appname }}.app/Contents/MacOS/$ACTUAL_EXECUTABLE\"\n    fi\n  fi\n  \n  echo \"Signing frameworks...\"\n  find \"${{ inputs.appname }}.app/Contents/Frameworks\" -type f -not -name \".*\" -exec \\\n    rcodesign sign --p12-file certificate.p12 --p12-password \"${{ secrets.MACOS_P12_PASSWORD }}\" \\\n    --code-signature-flags runtime {} \\;\n  \n  echo \"Signing main bundle...\"\n  rcodesign sign --p12-file certificate.p12 --p12-password \"${{ secrets.MACOS_P12_PASSWORD }}\" \\\n    --code-signature-flags runtime \"${{ inputs.appname }}.app\"\nelse\n  echo \"Error: Invalid app bundle structure\"\n  exit 1\nfi\n\n# Clean up\nrm certificate.p12 \n"
-    - name: Create DMG
-      run: "cd /Users/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/flutter/build/macos/Build/Products/Release\n# Print directory contents for debugging\necho \"Directory contents:\"\nls -la\n# Find the actual .app bundle\nif [ -d \"RustDesk.app\" ]; then\n  # First rename the app if it's still called RustDesk.app\n  mv \"RustDesk.app\" \"${{ inputs.appname }}.app\"\nfi\nif [ ! -d \"${{ inputs.appname }}.app\" ]; then\n  echo \"Could not find .app bundle!\"\n  exit 1\nfi\necho \"Creating DMG for ${{ inputs.appname }}.app\"\ncreate-dmg \\\n  --volname \"${{ inputs.appname }}\" \\\n  --window-pos 200 120 \\\n  --window-size 800 400 \\\n  --icon-size 100 \\\n  --icon \"${{ inputs.appname }}.app\" 200 190 \\\n  --hide-extension \"${{ inputs.appname }}.app\" \\\n  --app-drop-link 600 185 \\\n  \"${{ inputs.appname }}-${{ matrix.job.arch }}.dmg\" \\\n  \"${{ inputs.appname }}.app\"\nmv \"${{ inputs.appname }}-${{ matrix.job.arch }}.dmg\" $GITHUB_WORKSPACE/\n"
-    - name: Rename rustdesk
-      if: env.UPLOAD_ARTIFACT == 'true'
-      run: "cd $GITHUB_WORKSPACE\necho \"Directory contents:\"\nls -la\n  \n# Find the DMG file dynamically\nDMG_FILE=$(find . -name \"${{ inputs.appname }}-${{ matrix.job.arch }}.dmg\")\n  \nif [ -n \"$DMG_FILE\" ]; then\n  echo \"Found DMG file: $DMG_FILE\"\n  mv \"$DMG_FILE\" \"${{ inputs.filename }}-${{ matrix.job.arch }}.dmg\"\n  echo \"Renamed to ${{ inputs.filename }}-${{ matrix.job.arch }}.dmg\"\nelse\n  echo \"No DMG file found matching the pattern\"\n  exit 1\nfi\n"
-    - name: Collect artifacts
-      id: collect
-      shell: bash
-      run: "set -u\nmkdir -p dist\nfound=0\nfor pat in *.dmg; do\n  for f in $pat; do\n    [ -f \"$f\" ] || continue\n    cp \"$f\" dist/ && found=$((found+1))\n  done\ndone\nif [ \"$found\" -eq 0 ]; then echo \"::error::no artifact matched\"; exit 1; fi\nls -1 dist\n{ echo 'files<<RDGEN_EOF'; (cd dist && ls -1 | sed 's|^|dist/|'); echo 'RDGEN_EOF'; } >> \"$GITHUB_OUTPUT\"\n"
-    - name: Deliver artifact
-      uses: ./.rdgen/.github/actions/deliver
-      with:
-        uuid: ${{ inputs.uuid }}
-        out-name: ${{ inputs.filename }}
-        files: ${{ steps.collect.outputs.files }}
-    needs:
-    - bridge
-  finish:
-    name: Finish
+  cleanup:
+    needs: [build-for-macos]
     runs-on: ubuntu-latest
-    needs:
-    - build
-    - bridge
+    continue-on-error: true
+    if: always()
     steps:
-    - name: Load rdgen action definitions
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ github.repository }}
-        ref: ${{ github.ref }}
-        path: .rdgen
-        sparse-checkout: .github/actions .github/patches
-        sparse-checkout-cone-mode: false
-    - name: Report success
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: ''
-        label: ''
-        status: Success
-      continue-on-error: true
-    if: success()
-  failed:
-    name: Report failure
-    runs-on: ubuntu-latest
-    needs:
-    - build
-    - bridge
-    if: failure() || cancelled()
-    steps:
-    - name: Load rdgen action definitions
-      uses: actions/checkout@v4
-      with:
-        repository: ${{ github.repository }}
-        ref: ${{ github.ref }}
-        path: .rdgen
-        sparse-checkout: .github/actions .github/patches
-        sparse-checkout-cone-mode: false
-    - name: Report terminal state
-      uses: ./.rdgen/.github/actions/notify
-      with:
-        uuid: ${{ inputs.uuid }}
-        percent: ''
-        label: ''
-        status: ${{ cancelled() && 'Generation cancelled, please retry' || 'Generation failed, please retry' }}
-      continue-on-error: true
+      - name: Delete secrets artifact
+        uses: geekyeggo/delete-artifact@v5
+        with:
+          name: encrypted-secrets-zip
