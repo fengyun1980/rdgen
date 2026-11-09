@@ -1,0 +1,130 @@
+name: deliver
+description: >-
+  Hand the finished artifact to every configured destination. Destinations are
+  independent: an unconfigured or unreachable one must not stop the others, and
+  the rdgen server upload is the only hard requirement.
+
+inputs:
+  uuid:
+    description: Run identifier issued by the rdgen server.
+    required: true
+  files:
+    description: Newline separated list of artifact paths.
+    required: true
+  out-name:
+    description: Base name to store the artifact under.
+    required: false
+    default: 'rustdesk'
+
+runs:
+  using: composite
+  steps:
+    - name: Upload to rdgen server
+      shell: bash
+      env:
+        GENURL: ${{ env.GENURL }}
+        TK: ${{ env.CALLBACK_TOKEN }}
+        ID: ${{ inputs.uuid }}
+        OUTNAME: ${{ inputs.out-name }}
+        FILES: ${{ inputs.files }}
+      run: |
+        set -u
+        if [ -z "${GENURL:-}" ] || [ -z "${TK:-}" ]; then
+          echo "::error::GENURL/CALLBACK_TOKEN not configured; cannot deliver the build"
+          exit 1
+        fi
+        ok=0; fail=0
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          if [ ! -f "$f" ]; then
+            echo "::warning::artifact missing, skipped: $f"
+            continue
+          fi
+          ext="${f##*.}"
+          name="${OUTNAME:-rustdesk}.${ext}"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$GENURL/save_custom_client" \
+            -H "Authorization: Bearer $TK" \
+            -F "uuid=$ID" -F "file=@$f;filename=$name" \
+            --connect-timeout 10 --max-time 600 --retry 3 --retry-delay 5 --retry-all-errors \
+            2>/dev/null || echo 000)
+          echo "upload $f as $name -> $code"
+          if [ "$code" = "200" ]; then ok=$((ok+1));
+          else fail=$((fail+1)); echo "::warning::upload failed for $f (HTTP $code)"; fi
+        done <<< "$FILES"
+        echo "rdgen uploads ok=$ok failed=$fail"
+        [ "$ok" -gt 0 ] || { echo "::error::no artifact reached the rdgen server"; exit 1; }
+
+    - name: Forward to the operator API server
+      shell: bash
+      continue-on-error: true
+      env:
+        API: ${{ env.API_SERVER }}
+        TK: ${{ env.CALLBACK_TOKEN }}
+        ID: ${{ inputs.uuid }}
+        FILES: ${{ inputs.files }}
+      run: |
+        set -u
+        # Optional by design: only operators who run a RustDesk API server need it.
+        if [ -z "${API:-}" ]; then echo "no apiServer configured; skipping"; exit 0; fi
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          [ -f "$f" ] || continue
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$API/api/rdgen" \
+            -H "Authorization: Bearer ${TK:-}" -F "uuid=$ID" -F "file=@$f" \
+            --connect-timeout 10 --max-time 600 --retry 2 --retry-delay 5 --retry-all-errors \
+            2>/dev/null || echo 000)
+          echo "api-forward $f -> $code"
+          [ "$code" = "200" ] || echo "::warning::api forward failed for $f (HTTP $code)"
+        done <<< "$FILES"
+
+    - name: Mirror to File Browser
+      shell: bash
+      continue-on-error: true
+      env:
+        FB_URL: ${{ env.FB_URL }}
+        FB_USER: ${{ env.FB_USER }}
+        FB_PASS: ${{ env.FB_PASS }}
+        FB_DIR: ${{ env.FB_DIR }}
+        FILES: ${{ inputs.files }}
+      run: |
+        set -u
+        if [ -z "${FB_URL:-}" ] || [ -z "${FB_USER:-}" ] || [ -z "${FB_PASS:-}" ]; then
+          echo "File Browser not configured; skipping mirror"
+          exit 0
+        fi
+        # One resolved value for both the shell and the python helper: otherwise
+        # an unset FB_DIR makes the request path start with a bare slash.
+        export FB_DIR="${FB_DIR:-/Software/RustDesk}"
+        dir="$FB_DIR"
+        PYBIN=$(command -v python3 || command -v python || true)
+        if [ -z "${PYBIN:-}" ]; then
+          echo "::warning::no python available; cannot sign in to File Browser"
+          exit 0
+        fi
+        payload=$("$PYBIN" -c 'import json,os,sys;sys.stdout.write(json.dumps({"username":os.environ["FB_USER"],"password":os.environ["FB_PASS"]}))')
+        token=$(curl -sS -X POST "$FB_URL/api/login" -H 'Content-Type: application/json' \
+          --connect-timeout 10 --max-time 60 --retry 3 --retry-delay 3 --retry-all-errors \
+          -d "$payload" 2>/dev/null | tr ',' '\n' | sed -n 's/.*"token":"\([^"]*\)".*/\1/p' | head -n1)
+        if [ -z "${token:-}" ]; then
+          echo "::warning::File Browser login returned no token; skipping mirror"
+          exit 0
+        fi
+        while IFS= read -r f; do
+          [ -n "$f" ] || continue
+          [ -f "$f" ] || continue
+          base=$(basename "$f")
+          target=$("$PYBIN" -c 'import os,sys,urllib.parse;sys.stdout.write(urllib.parse.quote(os.environ["FB_DIR"]+"/"+sys.argv[1],safe=""))' "$base")
+          # The target directory must already exist: the API does not create it.
+          code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+            "$FB_URL/api/resources${target}?override=true" \
+            -H "X-Auth: $token" -H "X-Forwarded-For: 127.0.0.1" -F "file=@$f" \
+            --connect-timeout 10 --max-time 900 --retry 3 --retry-delay 5 --retry-all-errors \
+            2>/dev/null || echo 000)
+          echo "filebrowser $base -> $code"
+          case "$code" in
+            200|201|204) ;;
+            401|403) echo "::warning::File Browser rejected the token or refused permission";;
+            404) echo "::warning::File Browser directory does not exist: $dir";;
+            *) echo "::warning::File Browser upload failed for $base (HTTP $code)";;
+          esac
+        done <<< "$FILES"

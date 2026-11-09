@@ -1,0 +1,78 @@
+name: notify
+description: >-
+  Report build progress to the rdgen server. Reads the server URL and shared
+  secret from the workflow environment, so no credential ever travels through a
+  workflow_dispatch input (those are visible on the run page to anyone with repo
+  read access).
+
+inputs:
+  uuid:
+    description: Run identifier issued by the rdgen server.
+    required: true
+  percent:
+    description: Progress percentage. Leave empty for a terminal state.
+    required: false
+    default: ''
+  label:
+    description: Short human readable stage name.
+    required: false
+    default: ''
+  status:
+    description: Explicit status text. Overrides percent and label.
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: POST progress
+      shell: bash
+      continue-on-error: true
+      env:
+        SU: ${{ env.GENURL }}/updategh
+        TK: ${{ env.CALLBACK_TOKEN }}
+        ID: ${{ inputs.uuid }}
+        PCT: ${{ inputs.percent }}
+        LABEL: ${{ inputs.label }}
+        STATUS: ${{ inputs.status }}
+      run: |
+        set -u
+
+        if [ -z "${GENURL:-}" ] || [ -z "${TK:-}" ]; then
+          echo "GENURL/CALLBACK_TOKEN not set; skipping status report"
+          exit 0
+        fi
+        if [ -z "${ID:-}" ]; then
+          echo "no uuid; skipping status report"
+          exit 0
+        fi
+
+        if [ -n "${STATUS:-}" ]; then
+          ST="$STATUS"
+        elif [ -n "${PCT:-}" ]; then
+          ST="${PCT}% complete"
+        else
+          ST="${LABEL:-working}"
+        fi
+
+        # json.dumps handles quotes, percent signs and non-ASCII safely; the
+        # hand written escaping this replaces broke whenever a label contained
+        # a double quote.
+        PYBIN=$(command -v python3 || command -v python || true)
+        if [ -z "${PYBIN:-}" ]; then
+          echo "::warning::no python interpreter; cannot report status"
+          exit 0
+        fi
+
+        BODY=$("$PYBIN" -c 'import json,sys;sys.stdout.write(json.dumps({"uuid":sys.argv[1],"status":sys.argv[2]}))' "$ID" "$ST")
+
+        code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "$SU" \
+          -H 'Content-Type: application/json' \
+          -H "Authorization: Bearer $TK" \
+          --connect-timeout 5 --max-time 10 \
+          --retry 3 --retry-delay 2 --retry-all-errors \
+          -d "$BODY" 2>/dev/null || echo 000)
+
+        echo "status -> $code ($ST)"
+        [ "$code" = "200" ] || echo "::warning::status report returned HTTP $code"
+        exit 0
