@@ -82,19 +82,19 @@ jobs:
       STATUS_URL: "${{ secrets.GENURL }}/updategh"
 
     steps:
-      - name: Checkout Repository
+      - name: "检出仓库"
         uses: actions/checkout@v4
         
       - uses: actions/download-artifact@v4
         with:
           name: encrypted-secrets-zip
 
-      - name: Load Secrets
+      - name: "载入密钥"
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
 
-      - name: Finalize and Cleanup zip/json
+      - name: "完成并清理 zip/json"
         if: always() # Run even if previous steps fail
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
@@ -104,14 +104,14 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
 
-      - name: Export GitHub Actions cache environment variables
+      - name: "导出 GitHub Actions 缓存环境变量"
         uses: actions/github-script@v6
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Checkout source code
+      - name: "检出源代码"
         if: ${{ env.VERSION != 'master' }}
         uses: actions/checkout@v4
         with:
@@ -119,14 +119,14 @@ jobs:
             ref: refs/tags/${{ env.VERSION }}
             submodules: recursive
   
-      - name: Checkout source code
+      - name: "检出源代码"
         if: ${{ env.VERSION == 'master' }}
         uses: actions/checkout@v4
         with:
             repository: rustdesk/rustdesk
             submodules: recursive
 
-      - name: Set custom app version
+      - name: "设置自定义应用版本"
         continue-on-error: true
         if: ${{ inputs.app_version != '' }}
         shell: bash
@@ -135,7 +135,7 @@ jobs:
           sed -i '/name = "rustdesk"/ {n; s/version = ".*"/version = "${{ inputs.app_version }}"/}' ./Cargo.lock
           grep '^version = ' ./Cargo.toml
 
-      - name: Apply allow_custom_update patch
+      - name: "应用 allow_custom_update 补丁"
         continue-on-error: true
         if: ${{ env.update_public_key != '' }}
         shell: bash
@@ -146,13 +146,13 @@ jobs:
             --update-url "${{ env.downloadLink}}/api/version/latest" \
             --ed25519-public-key "${{ env.update_public_key }}"
 
-      - name: Install imagemagick and potrace and nasm and and
+      - name: "安装 imagemagick、potrace、nasm 等"
         shell: bash
         run: |
           brew install imagemagick potrace nasm cmake gcc wget ninja
           echo "$(brew --prefix imagemagick)/bin" >> $GITHUB_PATH
 
-      - name: Update macOS Info.plist and settings
+      - name: "更新 macOS Info.plist 与设置"
         continue-on-error: false
         shell: bash
         run: |
@@ -199,7 +199,7 @@ jobs:
           sed -i '' -e "s|launchUrlString('https://rustdesk.com/privacy.html')|launchUrlString('${{ env.urlLink }}/privacy.html')|" ./flutter/lib/mobile/pages/settings_page.dart
           sed -i '' -e "s|https://rustdesk.com/privacy.html|${{ env.urlLink }}/privacy.html|" ./flutter/lib/desktop/pages/install_page.dart
 
-      - name: change download link to custom
+      - name: "将下载链接改为自定义"
         if: env.downloadLink != 'https://rustdesk.com/download'
         continue-on-error: true
         shell: bash
@@ -228,7 +228,7 @@ jobs:
           mv ./flutter/pubspec.yaml.tmp ./flutter/pubspec.yaml
           rm ./flutter/temp_dependency.txt 
 
-      - name: set server, serverPort, key, and apiserver
+      - name: "设置服务器、serverPort、密钥与 api 服务"
         continue-on-error: true
         shell: bash
         env:
@@ -277,7 +277,7 @@ jobs:
           echo "=== Verification ==="
           grep -nE "RENDEZVOUS_PORT|RELAY_PORT|WS_" ./libs/hbb_common/src/config.rs
 
-      - name: allow custom.txt
+      - name: "启用 custom.txt"
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -291,7 +291,7 @@ jobs:
             git apply removeSetupServerTip.diff
             # sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
           
-      - name: Install build runtime
+      - name: "安装构建运行时"
         run: |
           brew install llvm create-dmg
           # pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner
@@ -301,7 +301,7 @@ jobs:
               brew install pkg-config
           fi
 
-      - name: Install NASM
+      - name: "安装 NASM"
         run: |
           # Install NASM 2.16.x from official release.
           # Do NOT use `brew install nasm` which installs NASM 3.x.
@@ -312,19 +312,19 @@ jobs:
           sudo cp nasm-2.16.03/nasm /usr/local/bin/nasm
           nasm --version
 
-      - name: Install flutter
+      - name: "安装 Flutter"
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
-      - name: Patch flutter
+      - name: "为 Flutter 打补丁"
         continue-on-error: true
         run: |
             cd $(dirname $(dirname $(which flutter)))
             [[ "3.24.5" == ${{env.FLUTTER_VERSION}} ]] && git apply ${{ github.workspace }}/.github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff
       
-      - name: Workaround for flutter issue
+      - name: "规避 Flutter 已知问题"
         shell: bash
         run: |
           cd "$(dirname "$(which flutter)")"
@@ -332,7 +332,7 @@ jobs:
           sed -i -e 's/_setFramesEnabledState(false);/\/\/_setFramesEnabledState(false);/g' ../packages/flutter/lib/src/scheduler/binding.dart
           grep -n '_setFramesEnabledState(false);' ../packages/flutter/lib/src/scheduler/binding.dart
         
-      - name: Install Rust toolchain
+      - name: "安装 Rust 工具链"
         uses: dtolnay/rust-toolchain@v1
         with:
             toolchain: ${{ env.MAC_RUST_VERSION }}
@@ -343,7 +343,7 @@ jobs:
         with:
           prefix-key: ${{ matrix.job.os }}
 
-      - name: Magick stuff for macOS
+      - name: "macOS 的 imagemagick 处理"
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: false
         shell: bash
@@ -453,7 +453,7 @@ jobs:
           echo "RustDesk Flutter assets:"
           ls -lh rustdesk/data/flutter_assets/assets/
 
-      - name: replace flutter icons
+      - name: "替换 Flutter 图标"
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: false
         shell: bash
@@ -477,7 +477,7 @@ jobs:
           flutter pub run flutter_launcher_icons
           cd ..
       
-      - name: ui.rs
+      - name: "修改 ui.rs"
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         shell: bash
@@ -489,7 +489,7 @@ jobs:
             sed -i '' -e "s~$SEARCH_STR.*\"~$b64\"~" ./src/ui.rs
           fi
 
-      - name: fix connection delay
+      - name: "修复连接延迟"
         continue-on-error: false
         if: ${{ env.delayFix == 'true' }}
         shell: bash
@@ -500,34 +500,34 @@ jobs:
           sed -i -e 's#if is_local || peer_nat_type == NatType::SYMMETRIC {#if is_local || peer_nat_type == NatType::SYMMETRIC || !key.is_empty() {#' ./src/client.rs
           grep -n "key.is_empty()" ./src/client.rs || true
   
-      - name: use X for offline display instead of orange circle
+      - name: "离线显示用 X 代替橙色圆点"
         continue-on-error: true
         if: env.xOffline == 'true'
         run: |
           wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/xoffline.diff
           git apply xoffline.diff
 
-      - name: hide-cm
+      - name: "隐藏客户管理（cm）"
         continue-on-error: true
         if: env.hidecm == 'true'
         run: |
           wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/hidecm.diff
           git apply hidecm.diff
 
-      - name: removeNewVersionNotif
+      - name: "移除新版本通知"
         continue-on-error: true
         if: env.removeNewVersionNotif == 'true'
         run: | 
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
           #sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
-      - name: Restore bridge files
+      - name: "恢复 bridge 文件"
         uses: actions/download-artifact@master
         with:
           name: bridge-artifact
           path: ./
 
-      - name: Restore vcpkg installed cache
+      - name: "恢复 vcpkg 已安装缓存"
         uses: actions/cache@v4
         with:
           path: ${{ github.workspace }}/installed
@@ -535,13 +535,13 @@ jobs:
           restore-keys: |
             vcpkg-macos-${{ env.VCPKG_COMMIT_ID }}-
 
-      - name: Setup vcpkg
+      - name: "配置 vcpkg"
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
+      - name: "安装 vcpkg 依赖"
         run: |
           if ! $VCPKG_ROOT/vcpkg \
             install \
@@ -557,18 +557,18 @@ jobs:
           fi
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
 
-      - name: Save vcpkg installed cache
+      - name: "保存 vcpkg 已安装缓存"
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
           path: ${{ github.workspace }}/installed
           key: vcpkg-macos-${{ env.VCPKG_COMMIT_ID }}-${{ matrix.job.vcpkg-triplet }}
 
-      - name: Create MacOS directory structure
+      - name: "创建 macOS 目录结构"
         run: |
           mkdir -p ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS
 
-      - name: Build rustdesk
+      - name: "构建 rustdesk"
         run: |
           if [ "${{ matrix.job.target }}" = "aarch64-apple-darwin" ]; then
             MIN_MACOS_VERSION="12.3"
@@ -584,7 +584,7 @@ jobs:
       #   run: |
       #     cp -rf ../target/release/service ./build/macos/Build/Products/Release/RustDesk.app/Contents/MacOS/
 
-      - name: Embed custom config into the .app bundle
+      - name: "将自定义配置内嵌到 .app 包"
         shell: bash
         run: |
           APP=$(find ./flutter/build/macos/Build/Products/Release -maxdepth 1 -name "*.app" | head -n 1)
@@ -592,7 +592,7 @@ jobs:
           echo -n '${{ env.custom }}' > "$APP/Contents/MacOS/custom_.txt"
           ls -l "$APP/Contents/MacOS/custom_.txt"
       
-      - name: Install rcodesign tool
+      - name: "安装 rcodesign 工具"
         if: env.MACOS_P12_BASE64 != null
         shell: bash
         run: |
@@ -602,7 +602,7 @@ jobs:
           mv apple-codesign-0.22.0-macos-universal/rcodesign /usr/local/bin
           popd
 
-      - name: Install build runtime
+      - name: "安装构建运行时"
         run: |
           brew install llvm create-dmg nasm cmake gcc wget ninja
           # pkg-config is handled in a separate step, because it may be already installed by `macos-latest`(14.7.1) runner
@@ -612,7 +612,7 @@ jobs:
               brew install pkg-config
           fi
   
-      - name: Show version information (Rust, cargo, Clang)
+      - name: "显示版本信息（Rust、cargo、Clang）"
         shell: bash
         run: |
           clang --version || true
@@ -622,7 +622,7 @@ jobs:
           cargo -V
           rustc -V
       
-      - name: icon svg handling
+      - name: "处理图标 SVG"
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: false
         shell: bash
@@ -638,7 +638,7 @@ jobs:
           potrace --svg -o "$ASSETS_DIR/icon.svg" ./temp_icon.pbm
           rm ./temp_icon.pbm
 
-      - name: logo handling
+      - name: "处理 logo"
         if: ${{ env.logolink_url != 'false' }}
         continue-on-error: false
         shell: bash
@@ -653,7 +653,7 @@ jobs:
             -O "$ASSETS_DIR/logo.png" \
             "${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}&uuid=${{ env.logolink_uuid }}"
 
-      - name: Sign macOS app bundle
+      - name: "签名 macOS 应用包"
         if: env.MACOS_P12_BASE64 != ''
         run: |
             cd flutter/build/macos/Build/Products/Release
@@ -711,7 +711,7 @@ jobs:
             # Clean up
             rm certificate.p12 
 
-      - name: Ad-hoc Sign macOS app bundle (Fallback)
+      - name: "临时签名 macOS 应用包（兜底）"
         if: env.MACOS_P12_BASE64 == '' || env.MACOS_P12_BASE64 == null
         shell: bash
         run: |
@@ -737,7 +737,7 @@ jobs:
               exit 1
             fi
 
-      - name: Create DMG
+      - name: "创建 DMG"
         run: |
           cd /Users/runner/work/${{ github.event.repository.name }}/${{ github.event.repository.name }}/flutter/build/macos/Build/Products/Release
           # Print directory contents for debugging
@@ -765,7 +765,7 @@ jobs:
             "${{ env.appname }}.app"
           mv "${{ env.appname }}-${{ matrix.job.arch }}.dmg" $GITHUB_WORKSPACE/
   
-      - name: Rename rustdesk
+      - name: "重命名 rustdesk"
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
           cd $GITHUB_WORKSPACE
@@ -784,7 +784,7 @@ jobs:
             exit 1
           fi
 
-      - name: send file to rdgen server
+      - name: "发送文件到 rdgen 服务器"
         if: ${{ env.rdgen == 'true' }}
         shell: bash
         run: |
@@ -796,7 +796,7 @@ jobs:
             "${{ secrets.GENURL }}/save_custom_client"
         
 
-      - name: send file to api server
+      - name: "发送文件到 api 服务器"
         if: ${{ env.rdgen == 'false' }}
         shell: bash
         run: |
@@ -812,7 +812,7 @@ jobs:
     continue-on-error: true
     if: always()
     steps:
-      - name: Delete secrets artifact
+      - name: "删除密钥产物"
         uses: geekyeggo/delete-artifact@v5
         with:
           name: encrypted-secrets-zip

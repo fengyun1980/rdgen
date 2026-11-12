@@ -72,7 +72,7 @@ jobs:
       fail-fast: false
 
   build-for-windows-flutter:
-    name: Build Windows
+    name: 构建 Windows（Flutter）
     needs: [build-RustDeskTempTopMostWindow, generate-bridge, setup]
     runs-on: ${{ matrix.job.os }}
     strategy:
@@ -91,19 +91,20 @@ jobs:
             }
           # - { target: aarch64-pc-windows-msvc, os: windows-2022, arch: aarch64 }
     steps:
-      - name: Checkout Repository
+      - name: 检出代码仓库
         uses: actions/checkout@v4
         
-      - uses: actions/download-artifact@v4
+      - name: 下载加密密钥产物
+        uses: actions/download-artifact@v4
         with:
           name: encrypted-secrets-zip
 
-      - name: Load Secrets
+      - name: 加载解密密钥
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
 
-      - name: Finalize and Cleanup zip/json
+      - name: 收尾清理 zip/json
         if: always() # Run even if previous steps fail
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
@@ -113,24 +114,24 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
 
-      - name: Export GitHub Actions cache environment variables
+      - name: 导出缓存环境变量
         uses: actions/github-script@v6
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
       
-      - name: Set rdgen value
+      - name: 设置状态上报地址（rdgen）
         if: ${{ env.rdgen == 'true' }}
         run: |
           echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $env:GITHUB_ENV
 
-      - name: Set rdgen value
+      - name: 设置状态上报地址（自建服务）
         if: ${{ env.rdgen == 'false' }}
         run: |
           echo "STATUS_URL=${{ env.apiServer }}/api/updategh" >> $env:GITHUB_ENV
 
-      - name: Checkout source code
+      - name: 检出源码（指定版本）
         if: ${{ env.VERSION != 'master' }}
         uses: actions/checkout@v4
         with:
@@ -138,14 +139,14 @@ jobs:
           ref: refs/tags/${{ env.VERSION }}
           submodules: recursive
 
-      - name: Checkout source code
+      - name: 检出源码（master 分支）
         if: ${{ env.VERSION == 'master' }}
         uses: actions/checkout@v4
         with:
           repository: rustdesk/rustdesk
           submodules: recursive
 
-      - name: Set custom app version
+      - name: 设置自定义应用版本号
         continue-on-error: true
         if: ${{ inputs.app_version != '' }}
         shell: bash
@@ -154,7 +155,7 @@ jobs:
           sed -i '/name = "rustdesk"/ {n; s/version = ".*"/version = "${{ inputs.app_version }}"/}' ./Cargo.lock
           grep '^version = ' ./Cargo.toml
 
-      - name: Apply allow_custom_update patch
+      - name: 应用自定义更新补丁
         continue-on-error: true
         if: ${{ env.update_public_key != '' }}
         shell: bash
@@ -165,24 +166,24 @@ jobs:
             --update-url "${{ env.downloadLink}}/api/version/latest" \
             --ed25519-public-key "${{ env.update_public_key }}"
 
-      - name: Restore bridge files
+      - name: 恢复 bridge 文件
         uses: actions/download-artifact@master
         with:
           name: bridge-artifact
           path: ./
 
-      - name: Install ImageMagick on Windows
+      - name: 安装 ImageMagick
         run: |
           choco install -y imagemagick.app --no-progress
           Get-ChildItem -Path "${env:ProgramFiles}" | % { $_.FullName } | Select-String -Pattern "[\/\\]ImageMagick[^\/\\]*$" | Out-File -Append -FilePath $env:GITHUB_PATH -Encoding utf8
 
-      - name: fix flutter_gpu_texture_renderer (fixed in master rustdesk)
+      - name: 修复 flutter GPU 纹理渲染器
         shell: bash
         run: |
           sed -i -e 's|2ded7f146437a761ffe6981e2f742038f85ca68d|08a471bb8ceccdd50483c81cdfa8b81b07b14b87|' ./flutter/pubspec.lock
           sed -i -e 's|2ded7f146437a761ffe6981e2f742038f85ca68d|08a471bb8ceccdd50483c81cdfa8b81b07b14b87|' ./flutter/pubspec.yaml
       
-      - name: change appname to custom
+      - name: 替换应用名称为自定义
         if: env.appname != 'rustdesk'
         continue-on-error: true
         shell: bash
@@ -212,7 +213,7 @@ jobs:
           find ./src/lang -name "*.rs" -exec sed -i -e 's|RustDesk|${{ env.appname }}|' {} \;
           sed -i -e 's|RustDesk|${{ env.appname }}|' ./res/msi/Package/License.rtf
           
-      - name: change company name
+      - name: 替换公司名称
         if: env.compname != 'Purslane Ltd'
         continue-on-error: true
         shell: bash
@@ -234,7 +235,7 @@ jobs:
           sed -i -e 's|Purslane Ltd|${{ env.compname }}|' ./res/msi/Package/License.rtf
           sed -i -e 's|Purslane Ltd|${{ env.compname }}|' ./src/main.rs
              
-      - name: change url to custom
+      - name: 替换官网链接为自定义
         if: env.urlLink != 'https://rustdesk.com'
         continue-on-error: true
         shell: bash
@@ -248,7 +249,7 @@ jobs:
           sed -i -e "s|https://rustdesk.com/privacy.html|${{ env.urlLink }}/privacy.html|" ./flutter/lib/desktop/pages/install_page.dart
           sed -i -e "s|rustdesk.com|${{ env.urlLink }}|" ./res/msi/Package/License.rtf
 
-      - name: change download link to custom
+      - name: 替换下载链接为自定义
         if: env.downloadLink != 'https://rustdesk.com/download'
         continue-on-error: true
         shell: bash
@@ -259,7 +260,7 @@ jobs:
           sed -i -e 's|&download_url|"${{ env.downloadLink }}"|' ./src/updater.rs
           sed -i -e 's|$downloadUrl/$downloadFile|${{ env.downloadLink }}|' ./flutter/lib/desktop/widgets/update_progress.dart
 
-      - name: set server, serverPort, key, and apiserver
+      - name: 配置服务器端口密钥与 API 服务
         continue-on-error: true
         shell: bash
         env:
@@ -310,7 +311,7 @@ jobs:
           # ./flutter/pubspec.yaml
           #sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
 
-      - name: allow custom.txt
+      - name: 允许自定义 custom.txt
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -324,7 +325,7 @@ jobs:
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/removeSetupServerTip.diff -OutFile removeSetupServerTip.diff
             git apply removeSetupServerTip.diff
 
-      - name: Patch remote printer port to spool file
+      - name: 修复远程打印机端口指向池文件
         shell: python
         run: |
           import os, re
@@ -373,19 +374,19 @@ jobs:
                   else:
                       print("Warning: RD_PRINTER_PORT not matched in RemotePrinter.cpp")
 
-      - name: Install LLVM and Clang
+      - name: 安装 LLVM 与 Clang
         uses: KyleMayes/install-llvm-action@v1
         with:
           version: ${{ env.LLVM_VERSION }}
 
-      - name: Install flutter
+      - name: 安装 Flutter
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
       # https://github.com/flutter/flutter/issues/155685
-      - name: Replace engine with rustdesk custom flutter engine
+      - name: 替换为 RustDesk 定制 Flutter 引擎
         run: |
           flutter doctor -v
           flutter precache --windows
@@ -393,7 +394,7 @@ jobs:
           Expand-Archive -Path windows-x64-release.zip -DestinationPath windows-x64-release
           mv -Force windows-x64-release/*  C:/hostedtoolcache/windows/flutter/stable-${{ env.FLUTTER_VERSION }}-x64/bin/cache/artifacts/engine/windows-x64-release/
 
-      - name: Patch flutter
+      - name: 应用 Flutter 补丁
         shell: bash
         run: |
           cp .github/patches/flutter_3.24.4_dropdown_menu_enableFilter.diff $(dirname $(dirname $(which flutter)))
@@ -402,18 +403,19 @@ jobs:
             git apply flutter_3.24.4_dropdown_menu_enableFilter.diff
           fi
 
-      - name: Install Rust toolchain
+      - name: 安装 Rust 工具链
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.SCITER_RUST_VERSION }}
           targets: ${{ matrix.job.target }}
           components: "rustfmt"
 
-      - uses: Swatinem/rust-cache@v2
+      - name: 恢复 Rust 编译缓存
+        uses: Swatinem/rust-cache@v2
         with:
           prefix-key: ${{ matrix.job.os }}
 
-      - name: Restore vcpkg installed cache
+      - name: 恢复 vcpkg 依赖缓存
         uses: actions/cache@v4
         with:
           path: C:\vcpkg\installed
@@ -421,14 +423,14 @@ jobs:
           restore-keys: |
             vcpkg-windows-${{ env.VCPKG_COMMIT_ID }}-
 
-      - name: Setup vcpkg
+      - name: 配置 vcpkg
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: C:\vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
+      - name: 安装 vcpkg 依赖
         env:
           VCPKG_DEFAULT_HOST_TRIPLET: ${{ matrix.job.vcpkg-triplet }}
         run: |
@@ -448,14 +450,14 @@ jobs:
           head -n 100 "${VCPKG_ROOT}/buildtrees/ffmpeg/build-${{ matrix.job.vcpkg-triplet }}-rel-out.log" || true
         shell: bash
 
-      - name: Save vcpkg installed cache
+      - name: 保存 vcpkg 依赖缓存
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
           path: C:\vcpkg\installed
           key: vcpkg-windows-${{ env.VCPKG_COMMIT_ID }}-${{ matrix.job.vcpkg-triplet }}
           
-      - name: magick stuff
+      - name: 生成自定义图标资源
         if: ${{ env.iconlink_url != 'false' }}
         uses: nick-fields/retry@v3
         with:
@@ -484,7 +486,7 @@ jobs:
             magick ./res/icon.png -resize 256x256 ./res/128x128@2x.png
 
 
-      - name: ui.rs icon
+      - name: 替换 ui.rs 内置图标
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         shell: bash
@@ -498,7 +500,7 @@ jobs:
           perl -0777 -pe "s|iVBORw0KGgoAAAANSUhEUgAAAIAAAACACAYAAADDPmHL[A-Za-z0-9+/=]+|$b64|g" -i.bak ./src/ui.rs
           b64=""
 
-      - name: fix connection delay
+      - name: 修复连接延迟
         continue-on-error: true
         if: ${{ env.delayFix == 'true' }}
         shell: bash
@@ -509,7 +511,7 @@ jobs:
           sed -i -e 's#if is_local || peer_nat_type == NatType::SYMMETRIC {#if is_local || peer_nat_type == NatType::SYMMETRIC || !key.is_empty() {#' ./src/client.rs
           grep -n "key.is_empty()" ./src/client.rs || true
 
-      - name: use X for offline display instead of orange circle
+      - name: 离线状态改用 X 显示
         if: env.xOffline == 'true'
         uses: nick-fields/retry@v3
         with:
@@ -522,7 +524,7 @@ jobs:
             Invoke-WebRequest -Uri https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/xoffline.diff -OutFile xoffline.diff
             git apply xoffline.diff
 
-      - name: removeNewVersionNotif
+      - name: 移除新版本通知
         continue-on-error: true
         if: env.removeNewVersionNotif == 'true'
         shell: bash
@@ -540,7 +542,7 @@ jobs:
       #             <requestedExecutionLevel level="requireAdministrator" uiAccess="false"/> \
       #           </security>' ./flutter/windows/runner/runner.exe.manifest
 
-      - name: replace flutter icons
+      - name: 替换 Flutter 应用图标
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         run: |
@@ -553,14 +555,14 @@ jobs:
           cp ../res/icon.ico ./windows/runner/resources/app_icon.ico
           cd ..
 
-      - name: Checkout printer-adapter crate
+      - name: 检出 printer-adapter 组件
         uses: actions/checkout@v4
         with:
           repository: bryangerlach/rdgen
           ref: master
           path: ./temp-repo
 
-      - name: Move printer-adapter into place
+      - name: 放置 printer-adapter 组件
         shell: pwsh
         run: |
           if (Test-Path "./temp-repo/printer-adapter") {
@@ -571,7 +573,7 @@ jobs:
             Write-Host "Error: printer-adapter folder not found in repository."
           }
 
-      - name: Build rustdesk
+      - name: 编译 RustDesk 主程序
         run: |
           # Windows: build RustDesk
           python3 .\build.py --portable --flutter --skip-portable-pack --hwcodec ${{ matrix.job.build-args }}
@@ -610,7 +612,7 @@ jobs:
             Write-Host "Warning: ./printer-adapter/Cargo.toml not found, remote printing will remain disabled."
           }
 
-      - name: icon stuff
+      - name: 处理图标资源
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         run: |
@@ -622,7 +624,7 @@ jobs:
           magick ./res/icon.png -resize 48x48 ./rustdesk/data/flutter_assets/assets/icon.png
           cp ./res/icon.ico ./rustdesk/data/flutter_assets/assets/icon.ico
 
-      - name: logo stuff
+      - name: 处理 Logo 资源
         if: ${{ env.logolink_url != 'false' }}
         uses: nick-fields/retry@v3
         with:
@@ -634,7 +636,7 @@ jobs:
           command: |
             Invoke-WebRequest -Uri ${{ env.logolink_url }}/get_png?filename=${{ env.logolink_file }}"&"uuid=${{ env.logolink_uuid }} -OutFile ./rustdesk/data/flutter_assets/assets/logo.png
 
-      - name: find Runner.res
+      - name: 查找并复制 Runner.res
         # Windows: find Runner.res (compiled from ./flutter/windows/runner/Runner.rc), copy to ./Runner.res
         # Runner.rc does not contain actual version, but Runner.res does
         continue-on-error: true
@@ -650,20 +652,20 @@ jobs:
             ls -l ./libs/portable/Runner.res;
           fi
 
-      - name: Download RustDeskTempTopMostWindow artifacts
+      - name: 下载置顶窗口组件产物
         uses: actions/download-artifact@master
         if: env.UPLOAD_ARTIFACT == 'true'
         with:
           name: topmostwindow-artifacts
           path: "./rustdesk"
       
-      - name: zip dlls
+      - name: 打包待签名 dll
         continue-on-error: true
         shell: pwsh
         run: |
           Compress-Archive -Path ./rustdesk/*.dll, ./rustdesk/*.exe -DestinationPath ./rustdesk/unsigned_files.zip -CompressionLevel Fastest
 
-      - name: sign dlls
+      - name: 签名 dll
         continue-on-error: true
         shell: bash
         run: |
@@ -677,7 +679,7 @@ jobs:
             cp ./rustdesk/unsigned_files.zip ./rustdesk/signed_files.zip
           fi
 
-      - name: unzip dlls
+      - name: 解压签名后 dll
         continue-on-error: true
         shell: pwsh
         run: |
@@ -685,12 +687,12 @@ jobs:
           Remove-Item ./rustdesk/unsigned_files.zip
           Remove-Item ./rustdesk/signed_files.zip
 
-      - name: Create custom.txt file
+      - name: 生成 custom_.txt 文件
         shell: bash
         run: |
           echo -n "${{ env.custom }}" | cat > ./rustdesk/custom_.txt
 
-      - name: Build self-extracted executable
+      - name: 生成自解压可执行程序
         shell: bash
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
@@ -703,10 +705,10 @@ jobs:
           mkdir -p ./SignOutput
           mv ./target/release/rustdesk-portable-packer.exe "./SignOutput/rustdesk.exe"
 
-      - name: Add MSBuild to PATH
+      - name: 配置 MSBuild 环境
         uses: microsoft/setup-msbuild@v2
 
-      - name: Build msi
+      - name: 打包 MSI 安装包
         continue-on-error: true
         if: env.UPLOAD_ARTIFACT == 'true'
         run: |
@@ -718,13 +720,13 @@ jobs:
           mv ./Package/bin/x64/Release/en-us/Package.msi ../../SignOutput/rustdesk.msi
           sha256sum ../../SignOutput/rustdesk.msi
 
-      - name: zip exe and msi
+      - name: 打包待签名 exe 与 msi
         continue-on-error: true
         shell: pwsh
         run: |
           Compress-Archive -Path ./SignOutput/*.exe, ./SignOutput/*.msi -DestinationPath ./SignOutput/unsigned_files.zip -CompressionLevel Fastest
 
-      - name: sign exe and msi
+      - name: 签名 exe 与 msi
         continue-on-error: true
         shell: bash
         run: |
@@ -738,7 +740,7 @@ jobs:
             cp ./SignOutput/unsigned_files.zip ./SignOutput/signed_files.zip
           fi
 
-      - name: unzip exe and msi
+      - name: 解压签名后 exe 与 msi
         continue-on-error: true
         shell: pwsh
         run: |
@@ -746,16 +748,16 @@ jobs:
           Remove-Item ./SignOutput/unsigned_files.zip
           Remove-Item ./SignOutput/signed_files.zip
 
-      - name: rename rustdesk.exe to filename.exe
+      - name: 重命名主程序 exe
         run: |
           mv ./SignOutput/rustdesk.exe "./SignOutput/${{ env.filename }}.exe" || echo "rustdesk"
 
-      - name: rename rustdesk.msi to filename.msi
+      - name: 重命名安装包 msi
         continue-on-error: true
         run: |
           mv ./SignOutput/rustdesk.msi "./SignOutput/${{ env.filename }}.msi" || echo "rustdesk"
 
-      - name: send file to rdgen server
+      - name: 上传产物到 rdgen 服务器
         if: ${{ env.rdgen == 'true' }}
         uses: nick-fields/retry@v3
         with:
@@ -767,25 +769,13 @@ jobs:
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client || true
 
-      - name: send file to api server
-        if: ${{ env.rdgen == 'false' }}
-        uses: nick-fields/retry@v3
-        with:
-          timeout_minutes: 10
-          max_attempts: 3
-          retry_wait_seconds: 15
-          shell: bash
-          command: |
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.exe" ${{ env.apiServer }}/api/save_custom_client
-            curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./SignOutput/${{ env.filename }}.msi" ${{ env.apiServer }}/api/save_custom_client || true
-
   cleanup:
     needs: [build-for-windows-flutter]
     runs-on: ubuntu-latest
     continue-on-error: true
     if: always()
     steps:
-      - name: Delete secrets artifact
+      - name: 删除密钥产物
         uses: geekyeggo/delete-artifact@v5
         with:
           name: encrypted-secrets-zip

@@ -15,24 +15,24 @@ jobs:
     env:
       RELEASE_NAME: web-basic
     steps:
-      - name: Checkout source code
+      - name: "检出源代码"
         uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Prepare env
+      - name: "准备环境"
         run: |
           sudo apt-get update -y
           sudo apt-get install -y wget npm
 
-      - name: Install flutter
+      - name: "安装 Flutter"
         uses: subosito/flutter-action@v2.12.0 #https://github.com/subosito/flutter-action/issues/277
         with:
           channel: "stable"
           flutter-version: ${{ env.FLUTTER_VERSION }}
 
       # https://rustdesk.com/docs/en/dev/build/web/
-      - name: Build web
+      - name: "构建 Web"
         shell: bash
         run: |
           pushd flutter/web/v2
@@ -62,7 +62,7 @@ jobs:
           sha256sum "${dir_name}".tar.gz
           popd
 
-      - name: Upload APK artifact
+      - name: "上传 APK 产物"
         uses: actions/upload-artifact@v4
         with:
             name: web

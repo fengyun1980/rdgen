@@ -86,19 +86,19 @@ jobs:
               suffix: "",
             }
     steps:
-      - name: Checkout Repository
+      - name: "检出仓库"
         uses: actions/checkout@v4
         
       - uses: actions/download-artifact@v4
         with:
           name: encrypted-secrets-zip
 
-      - name: Load Secrets
+      - name: "载入密钥"
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
 
-      - name: Finalize and Cleanup zip/json
+      - name: "完成并清理 zip/json"
         if: always() # Run even if previous steps fail
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
@@ -108,7 +108,7 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
 
-      - name: Free Disk Space (Ubuntu)
+      - name: "释放磁盘空间（Ubuntu）"
         uses: jlumbroso/free-disk-space@main
         with:
           tool-cache: false
@@ -119,24 +119,24 @@ jobs:
           docker-images: true
           swap-storage: false
 
-      - name: Export GitHub Actions cache environment variables
+      - name: "导出 GitHub Actions 缓存环境变量"
         uses: actions/github-script@v6
         with:
           script: |
             core.exportVariable('ACTIONS_CACHE_URL', process.env.ACTIONS_CACHE_URL || '');
             core.exportVariable('ACTIONS_RUNTIME_TOKEN', process.env.ACTIONS_RUNTIME_TOKEN || '');
 
-      - name: Set rdgen value
+      - name: "设置状态上报地址（rdgen）"
         if: ${{ env.rdgen == 'true' }}
         run: |
           echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $GITHUB_ENV
 
-      - name: Set rdgen value
+      - name: "设置状态上报地址（自建服务）"
         if: ${{ env.rdgen == 'false' }}
         run: |
           echo "STATUS_URL=${{ env.apiServer }}/api/updategh" >> $GITHUB_ENV
 
-      - name: Install dependencies
+      - name: "安装依赖"
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -173,12 +173,12 @@ jobs:
                tree \
                wget
 
-      - name: Install dependencies
+      - name: "安装依赖"
         continue-on-error: true
         run: |
           sudo apt-get install -y potrace
 
-      - name: Checkout source code
+      - name: "检出源代码"
         if: ${{ env.VERSION != 'master' }}
         uses: actions/checkout@v4
         with:
@@ -186,14 +186,14 @@ jobs:
           ref: refs/tags/${{ env.VERSION }}
           submodules: recursive
        
-      - name: Checkout source code
+      - name: "检出源代码"
         if: ${{ env.VERSION == 'master' }}
         uses: actions/checkout@v4
         with:
           repository: rustdesk/rustdesk
           submodules: recursive
 
-      - name: Set custom app version
+      - name: "设置自定义应用版本"
         continue-on-error: true
         if: ${{ inputs.app_version != '' }}
         shell: bash
@@ -202,7 +202,7 @@ jobs:
           sed -i '/name = "rustdesk"/ {n; s/version = ".*"/version = "${{ inputs.app_version }}"/}' ./Cargo.lock
           grep '^version = ' ./Cargo.toml
 
-      - name: Apply allow_custom_update patch
+      - name: "应用 allow_custom_update 补丁"
         continue-on-error: true
         if: ${{ env.update_public_key != '' }}
         shell: bash
@@ -213,7 +213,7 @@ jobs:
             --update-url "${{ env.downloadLink}}/api/version/latest" \
             --ed25519-public-key "${{ env.update_public_key }}"
 
-      - name: Patch Android Manifest and Gradle for AGP 8+
+      - name: "为 AGP 8+ 修改 Android Manifest 与 Gradle"
         run: |
           MANIFEST_PATH="flutter/android/app/src/main/AndroidManifest.xml"
           BUILD_GRADLE_PATH="flutter/android/app/build.gradle"
@@ -231,13 +231,13 @@ jobs:
             echo "Namespace already exists in build.gradle."
           fi
 
-      - name: Install flutter
+      - name: "安装 Flutter"
         uses: subosito/flutter-action@v2
         with:
           channel: "stable"
           flutter-version: ${{ env.ANDROID_FLUTTER_VERSION }}
 
-      - name: Patch flutter
+      - name: "为 Flutter 打补丁"
         continue-on-error: true
         run: |
           cd $(dirname $(dirname $(which flutter)))
@@ -250,7 +250,7 @@ jobs:
           ndk-version: ${{ env.NDK_VERSION }}
           add-to-path: true
 
-      - name: Restore vcpkg installed cache
+      - name: "恢复 vcpkg 已安装缓存"
         uses: actions/cache@v4
         with:
           path: /opt/artifacts/vcpkg/installed
@@ -258,14 +258,14 @@ jobs:
           restore-keys: |
             vcpkg-android-${{ env.VCPKG_COMMIT_ID }}-
 
-      - name: Setup vcpkg
+      - name: "配置 vcpkg"
         uses: lukka/run-vcpkg@v11
         with:
           vcpkgDirectory: /opt/artifacts/vcpkg
           vcpkgGitCommitId: ${{ env.VCPKG_COMMIT_ID }}
           doNotCache: false
 
-      - name: Install vcpkg dependencies
+      - name: "安装 vcpkg 依赖"
         run: |
           case ${{ matrix.job.target }} in
             aarch64-linux-android)
@@ -293,20 +293,20 @@ jobs:
           fi
         shell: bash
 
-      - name: Save vcpkg installed cache
+      - name: "保存 vcpkg 已安装缓存"
         uses: actions/cache/save@v4
         continue-on-error: true
         with:
           path: /opt/artifacts/vcpkg/installed
           key: vcpkg-android-${{ env.VCPKG_COMMIT_ID }}-${{ matrix.job.target }}
         
-      - name: Restore bridge files
+      - name: "恢复 bridge 文件"
         uses: actions/download-artifact@master
         with:
           name: bridge-artifact
           path: ./
 
-      - name: Install Rust toolchain
+      - name: "安装 Rust 工具链"
         uses: dtolnay/rust-toolchain@v1
         with:
           toolchain: ${{ env.RUST_VERSION }}
@@ -318,7 +318,7 @@ jobs:
           key: ${{ matrix.job.target }}
 
       ###########################################################echo "${{ env.iconbase64 }}" | base64 -d > ./res/icon.png
-      - name: icon stuff
+      - name: "图标处理"
         if: ${{ env.iconlink_url != 'false' }}
         uses: nick-fields/retry@v3
         with:
@@ -351,7 +351,7 @@ jobs:
             sed -i '/adaptive_icon_foreground:/a \ \ adaptive_icon_foreground_inset: 32' ./flutter/pubspec.yaml
             sed -i '/ic_launcher_background/d' ./flutter/android/app/src/main/res/values/colors.xml
 
-      - name: set server, serverPort, key, and apiserver
+      - name: "设置服务器、serverPort、密钥与 api 服务"
         continue-on-error: true
         shell: bash
         env:
@@ -402,7 +402,7 @@ jobs:
           # ./flutter/pubspec.yaml
           #sed -i '/intl:/a \ \ archive: ^3.6.1' ./flutter/pubspec.yaml
           
-      - name: change appname to custom
+      - name: "将应用名改为自定义"
         if: env.appname != 'rustdesk'
         continue-on-error: true
         shell: bash
@@ -439,7 +439,7 @@ jobs:
           sed -i -e 's|Purslane Ltd.|${{ env.compname }}|' ./libs/portable/Cargo.toml
           sed -i -e 's|Purslane Ltd|${{ env.compname }}|' ./src/main.rs
 
-      - name: change url to custom
+      - name: "将下载地址改为自定义"
         if: env.urlLink != 'https://rustdesk.com'
         continue-on-error: true
         shell: bash
@@ -457,7 +457,7 @@ jobs:
       # native side. Both the server (Kotlin FFI.startServer) and the FFI init
       # (Dart main_init) pass "" by default; embed the base64 config there so
       # read_custom_client() runs and presets the password + permissions.
-      - name: Embed custom config for Android
+      - name: "为 Android 内嵌自定义配置"
         shell: bash
         run: |
           KOTLIN=./flutter/android/app/src/main/kotlin/com/carriez/flutter_hbb/MainService.kt
@@ -468,14 +468,14 @@ jobs:
           grep -n 'FFI.startServer(configPath' "$KOTLIN" | sed 's/\(.\{80\}\).*/\1.../'
           grep -n 'customClientConfig:' "$DART" | sed 's/\(.\{80\}\).*/\1.../'
 
-      - name: change app id to custom
+      - name: "将应用 ID 改为自定义"
         if: env.androidappid != 'com.carriez.flutter_hbb'
         continue-on-error: true
         shell: bash
         run: |
           sed -i -e 's|com.carriez.flutter_hbb|${{ env.androidappid }}|' ./flutter/android/app/build.gradle
 
-      - name: change download link to custom
+      - name: "将下载链接改为自定义"
         if: env.downloadLink != 'https://rustdesk.com/download'
         continue-on-error: true
         shell: bash
@@ -484,7 +484,7 @@ jobs:
           sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./flutter/lib/mobile/pages/connection_page.dart
           sed -i -e 's|https://rustdesk.com/download|${{ env.downloadLink }}|' ./src/ui/index.tis
 
-      - name: allow custom.txt
+      - name: "启用 custom.txt"
         uses: nick-fields/retry@v3
         with:
           timeout_minutes: 5
@@ -498,12 +498,12 @@ jobs:
             git apply removeSetupServerTip.diff
             echo -n '${{ env.custom }}' > ./custom_.txt
 
-      - name: Remove scam alert on Android
+      - name: "移除 Android 诈骗提醒"
         shell: bash
         run: |
           sed -i 's/bind.mainGetLocalOption(key:\s*"show-scam-warning")/"N"/g' ./flutter/lib/mobile/pages/server_page.dart
 
-      - name: fix connection delay
+      - name: "修复连接延迟"
         continue-on-error: true
         if: ${{ env.delayFix == 'true' }}
         shell: bash
@@ -514,7 +514,7 @@ jobs:
           sed -i -e 's#if is_local || peer_nat_type == NatType::SYMMETRIC {#if is_local || peer_nat_type == NatType::SYMMETRIC || !key.is_empty() {#' ./src/client.rs
           grep -n "key.is_empty()" ./src/client.rs || true
 
-      - name: use X for offline display instead of orange circle
+      - name: "离线显示用 X 代替橙色圆点"
         if: env.xOffline == 'true'
         uses: nick-fields/retry@v3
         with:
@@ -527,7 +527,7 @@ jobs:
             wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/xoffline.diff
             git apply xoffline.diff
 
-      - name: hide-cm
+      - name: "隐藏客户管理（cm）"
         if: env.hidecm == 'true'
         uses: nick-fields/retry@v3
         with:
@@ -540,14 +540,14 @@ jobs:
             wget https://raw.githubusercontent.com/bryangerlach/rdgen/refs/heads/master/.github/patches/hidecm.diff
             git apply hidecm.diff
 
-      - name: removeNewVersionNotif
+      - name: "移除新版本通知"
         continue-on-error: true
         if: env.removeNewVersionNotif == 'true'
         run: | 
           sed -i -e 's|updateUrl.isNotEmpty|false|' ./flutter/lib/desktop/pages/desktop_home_page.dart
           #sed -i '/let (request, url) =/,/Ok(())/{/Ok(())/!d}' ./src/common.rs
 
-      - name: replace flutter icons
+      - name: "替换 Flutter 图标"
         if: ${{ env.iconlink_url != 'false' }}
         run: |
           pushd ./flutter
@@ -557,7 +557,7 @@ jobs:
           sed -i '/ic_launcher_background/d' ./flutter/android/app/src/main/res/values/colors.xml
       ##########################################################
 
-      - name: Build rustdesk lib
+      - name: "构建 rustdesk 库"
         env:
           ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
           ANDROID_NDK_ROOT: ${{ steps.setup-ndk.outputs.ndk-path }}
@@ -587,13 +587,13 @@ jobs:
             ;;
           esac
 
-      - name: Upload Rustdesk library to Artifacts
+      - name: "上传 rustdesk 库到产物"
         uses: actions/upload-artifact@master
         with:
           name: librustdesk.so.${{ matrix.job.target }}
           path: ./target/${{ matrix.job.target }}/release/liblibrustdesk.so
 
-      - name: icons
+      - name: "图标"
         if: ${{ env.iconlink_url != 'false' }}
         continue-on-error: true
         run: |
@@ -602,7 +602,7 @@ jobs:
           convert ./res/128x128.png -resize 200% ./flutter/assets/128x128@2x.png || true
           cp ./flutter/assets/icon.svg ./res/scalable.svg
 
-      - name: Build rustdesk
+      - name: "构建 rustdesk"
         shell: bash
         env:
           JAVA_HOME: /usr/lib/jvm/java-17-openjdk-amd64
@@ -680,7 +680,7 @@ jobs:
           # missing dir made the sign step fail silently via continue-on-error
           BUILD_TOOLS_VERSION: "34.0.0"
 
-      - name: Prefer signed APK when available
+      - name: "优先使用已签名的 APK"
         shell: bash
         run: |
           # sign-android-release writes *-signed.apk next to the input but the
@@ -697,7 +697,7 @@ jobs:
           fi
           ls -l ./signed-apk/
 
-      - name: send file to rdgen server
+      - name: "发送文件到 rdgen 服务器"
         if: ${{ env.rdgen == 'true' }}
         uses: nick-fields/retry@v3
         with:
@@ -708,7 +708,7 @@ jobs:
           command: |
             curl -i -X POST -H "Content-Type: multipart/form-data" -H "Authorization: Bearer ${{ env.token }}" -F "file=@./signed-apk/${{ env.filename }}-${{ matrix.job.arch }}.apk" -F "uuid=${{ env.uuid }}" ${{ secrets.GENURL }}/save_custom_client
 
-      - name: send file to api server
+      - name: "发送文件到 api 服务器"
         if: ${{ env.rdgen == 'false' }}
         uses: nick-fields/retry@v3
         with:
@@ -723,19 +723,19 @@ jobs:
     needs: [build-rustdesk-android]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: "检出仓库"
         uses: actions/checkout@v4
         
       - uses: actions/download-artifact@v4
         with:
           name: encrypted-secrets-zip
 
-      - name: Load Secrets
+      - name: "载入密钥"
         uses: ./.github/actions/decrypt-secrets
         with:
           zip_password: ${{ secrets.ZIP_PASSWORD }}
 
-      - name: Finalize and Cleanup zip/json
+      - name: "完成并清理 zip/json"
         if: always() # Run even if previous steps fail
         continue-on-error: true
         uses: fjogeleit/http-request-action@v1
@@ -745,12 +745,12 @@ jobs:
           customHeaders: '{"Content-Type": "application/json"}'
           data: '{"uuid": "${{ env.uuid }}"}'
 
-      - name: Set rdgen value
+      - name: "设置状态上报地址（rdgen）"
         if: ${{ env.rdgen == 'true' }}
         run: |
           echo "STATUS_URL=${{ secrets.GENURL }}/updategh" >> $GITHUB_ENV
 
-      - name: Set rdgen value
+      - name: "设置状态上报地址（自建服务）"
         if: ${{ env.rdgen == 'false' }}
         run: |
           echo "STATUS_URL=${{ env.apiServer }}/api/updategh" >> $GITHUB_ENV
@@ -766,7 +766,7 @@ jobs:
     continue-on-error: true
     if: always()
     steps:
-      - name: Delete secrets artifact
+      - name: "删除密钥产物"
         uses: geekyeggo/delete-artifact@v5
         with:
           name: encrypted-secrets-zip
